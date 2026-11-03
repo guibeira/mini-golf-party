@@ -1,3 +1,6 @@
 node_modules
 dist
+# iii compose: daemon state and the state worker's files.
+.iii
+data
 *.log

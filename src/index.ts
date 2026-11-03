@@ -7,7 +7,8 @@ import { type HttpResult, PROJECT_ROOT, readAsset, readIndex } from './static.js
 
 const WORKER_NAME = 'mini-golf'
 const STATE_SCOPE = 'mini-golf'
-const ENGINE_URL = process.env.III_URL ?? process.env.III_ENGINE_URL ?? 'ws://127.0.0.1:49190'
+// Compose sets III_URL; the fallback is the iii engine's default address.
+const ENGINE_URL = process.env.III_URL ?? process.env.III_ENGINE_URL ?? 'ws://127.0.0.1:49134'
 
 const iii = registerWorker(ENGINE_URL, {
   workerName: WORKER_NAME,
@@ -22,7 +23,6 @@ async function stateGet<T>(key: string): Promise<T | null> {
   try {
     const value = await iii.trigger<{ scope: string; key: string }, T | null>({
       function_id: 'state::get',
-      namespace: 'default',
       payload: { scope: STATE_SCOPE, key },
       timeoutMs: 5_000,
     })
@@ -36,7 +36,6 @@ async function stateGet<T>(key: string): Promise<T | null> {
 async function stateSet(key: string, value: unknown): Promise<void> {
   await iii.trigger({
     function_id: 'state::set',
-    namespace: 'default',
     payload: { scope: STATE_SCOPE, key, value },
     timeoutMs: 5_000,
   })

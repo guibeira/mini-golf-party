@@ -1,0 +1,40 @@
+# Mini Golf Party on iii.
+# Docs: https://iii.dev/docs/next/using-iii/compose
+#
+# Start the engine, the HTTP server, state and the game with one command:
+#
+#   iii compose --up
+#
+# Then open http://127.0.0.1:3111/golf (friends on your network or VPN use
+# http://<this-machine-ip>:3111/golf; the lobby shows that link for you).
+namespace: default
+startup_timeout: 360s
+
+engine:
+  url: ws://127.0.0.1:49134
+
+containers:
+  # HTTP server on 0.0.0.0:3111. It serves the game page and its API.
+  # Another iii project already on 3111? Give this one its own port:
+  #   config_override:
+  #     port: 3121
+  http:
+    worker: package://http
+    version: "0.22.8"
+
+  # Key-value store: rooms survive worker restarts, and the leaderboard lives
+  # here too. File based, under ./data in this directory.
+  state:
+    worker: package://state
+    version: "0.22.23"
+    working_dir: .
+
+  # The game itself: this directory (see iii.worker.yaml). `pnpm dev` builds the
+  # web client, then rebuilds it and restarts the worker on every change.
+  mini-golf:
+    worker: path://.
+    start_after: [http, state]
+    scripts:
+      pre_run: pnpm install --frozen-lockfile
+      pre_run_timeout: 300s
+      run: pnpm dev

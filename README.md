@@ -3,10 +3,32 @@
 Turn-based 3D mini golf for up to 8 players, right in the browser, running as an
 [iii](https://iii.dev) worker.
 
+## Run it
+
+The project is an [iii compose](https://iii.dev/docs/next/using-iii/compose) project:
+`worker-compose.yaml` starts the iii engine, the `http` worker (port 3111), the `state`
+worker and the game worker in this directory.
+
+Requirements: the [iii CLI](https://iii.dev) (engine 0.25 or newer), Node.js 22+ and pnpm 10.
+
+```bash
+git clone git@github.com:guibeira/mini-golf-party.git
+cd mini-golf-party
+iii compose --up
+```
+
+Compose runs `pnpm install` for the game before starting it, so a fresh clone needs no
+extra step. The first start downloads the `http` and `state` workers and writes
+`worker-compose.lock`; commit that file to pin the exact builds.
+
+If another iii project already uses port 3111, set `config_override: { port: 3121 }` on
+the `http` container (there is a commented example in the file).
+
 ## Play
 
 1. Open `http://127.0.0.1:3111/golf` (on your LAN: `http://<this-machine-ip>:3111/golf`).
-2. Create a room and share the `?room=CODE` link with your friends.
+2. Create a room and share the `?room=CODE` link with your friends; on localhost the lobby
+   already shows the link with your network address.
 3. On your turn, drag back from your ball like a slingshot and let go. Everyone watches
    every shot, and the camera follows whoever is up.
 
@@ -63,9 +85,10 @@ otherwise it is marked away and its turns are skipped, and 30 s later its seat i
 
 ## Development
 
+`iii compose --up` already runs the game in watch mode (`pnpm dev`): every change in
+`web/` rebuilds the client and every change in `src/` or `shared/` restarts the worker.
+
 ```bash
-pnpm install
-pnpm dev        # what compose runs: builds the client, watches web/, restarts the worker
 pnpm dev:web    # Vite with HMR at http://localhost:5173/golf/ (API proxied to port 3111)
 pnpm test       # physics, courses, turns and room flow
 pnpm typecheck
