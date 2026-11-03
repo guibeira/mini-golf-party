@@ -48,6 +48,29 @@ test('the ball never passes through walls or stops inside blocks', () => {
   }
 })
 
+test('shots report sound events in order: walls, the cup and water', () => {
+  const h1 = COURSE.holes[0]
+  const wallShot = simulateShot({ hole: h1, from: h1.tee, angle: 0, power: 0.6 })
+  assert.ok(wallShot.events.some((e) => e.kind === 'wall'), 'hitting the side wall makes a sound')
+  const aim = Math.atan2(h1.cup.z - h1.tee.z, h1.cup.x - h1.tee.x)
+  let holed = null
+  for (let power = 0.3; power <= 1 && !holed; power += 0.01) {
+    const shot = simulateShot({ hole: h1, from: h1.tee, angle: aim, power })
+    if (shot.result === 'holed') holed = shot
+  }
+  assert.equal(holed?.events.at(-1)?.kind, 'cup')
+  const h3 = COURSE.holes[2]
+  const splash = simulateShot({ hole: h3, from: h3.tee, angle: Math.atan2(6.5 - h3.tee.z, -1.75 - h3.tee.x), power: 0.6 })
+  assert.equal(splash.events.at(-1)?.kind, 'water')
+  for (const shot of [wallShot, holed!, splash]) {
+    const duration = (shot.frames.length / 2 - 1) * shot.frameDt
+    shot.events.forEach((e, i) => {
+      assert.ok(e.t >= 0 && e.t <= duration + 1e-6, 'event inside the animation')
+      if (i > 0) assert.ok(e.t >= shot.events[i - 1].t, 'events are in time order')
+    })
+  }
+})
+
 test('water sends the ball back to where it was hit', () => {
   const hole = COURSE.holes[2]
   const angle = Math.atan2(6.5 - hole.tee.z, -1.75 - hole.tee.x)

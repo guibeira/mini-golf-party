@@ -204,6 +204,8 @@ export class RoomStore {
       frames: sim.frames,
       frameDt: sim.frameDt,
       result: sim.result,
+      power: p,
+      events: sim.events,
       strokes: player.strokes[index],
       at: now,
     }
@@ -214,6 +216,32 @@ export class RoomStore {
     room.turnEndsAt = player.busyUntil + SETTLE_MS
     this.commit(room)
     return { room: this.view(room), shot }
+  }
+
+  /**
+   * Leaves the room for good: the turn and the host role pass on, and a room left empty
+   * goes back to the lobby so the invite link still works.
+   */
+  async leave(rawCode: unknown, playerId: unknown, token: unknown): Promise<{ left: boolean }> {
+    const room = await this.get(rawCode)
+    const player = this.auth(room, playerId, token)
+    const wasTurn = room.phase === 'playing' && room.turnPlayerId === player.id
+    player.connected = false
+    player.done = true
+    const next = wasTurn ? this.nextPlayer(room, player.id) : null
+    room.players = room.players.filter((p) => p.id !== player.id)
+    if (room.players.length === 0) {
+      room.phase = 'lobby'
+      room.holeIndex = 0
+      room.nextAt = null
+      room.hostId = ''
+      this.beginTurn(room, null)
+    } else {
+      if (room.hostId === player.id) room.hostId = (room.players.find((p) => p.connected) ?? room.players[0]).id
+      if (wasTurn) this.beginTurn(room, next?.id ?? null)
+    }
+    this.commit(room)
+    return { left: true }
   }
 
   /** Long-poll: resolves when the room's version changes or the wait times out. */
@@ -413,6 +441,7 @@ export class RoomStore {
       busyUntil: 0,
     }
     room.players.push(player)
+    if (!room.players.some((p) => p.id === room.hostId)) room.hostId = player.id
     return player
   }
 

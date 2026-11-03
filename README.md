@@ -13,7 +13,10 @@ Turn-based 3D mini golf for up to 8 players, right in the browser, running as an
 Rules: 4 holes (par 11). Players take turns in seat order and the first shooter rotates
 every hole. You get 30 s per turn (running out costs one stroke) and at most 6 strokes
 per hole; not holing out scores 7. Sand slows the ball, arrows push it (boost pads and
-slopes), and water sends it back with +1 stroke. Disconnected players are skipped.
+slopes), and water sends it back with +1 stroke. Disconnected players are skipped, and
+**Leave** (top left, with a confirmation) quits a game in progress; the turn and the host
+role pass on. Sound effects are synthesized with Web Audio and can be muted from the same
+corner.
 
 ## How it works
 
@@ -49,6 +52,7 @@ Every action is also an iii function:
 | `mini-golf::rooms::join { code, name, playerId?, token? }` | joins (or reconnects) |
 | `mini-golf::rooms::start { code, playerId, token }` | starts the game (host only) |
 | `mini-golf::rooms::shoot { code, playerId, token, angle, power }` | shoots on your turn; `angle` in radians on the x,z plane |
+| `mini-golf::rooms::leave { code, playerId, token }` | leaves the room for good |
 | `mini-golf::rooms::get { code, since?, playerId?, waitMs? }` | reads the room; pass `playerId` to stay connected |
 | `mini-golf::course::get`, `mini-golf::leaderboard::get` | course and best rounds |
 

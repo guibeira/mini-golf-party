@@ -1,4 +1,4 @@
-import type { Hole, Rect, ShotResult, Vec2 } from './types.js'
+import type { Hole, Rect, ShotEvent, ShotResult, Vec2 } from './types.js'
 
 export const BALL_RADIUS = 0.12
 export const CUP_RADIUS = 0.2
@@ -87,6 +87,7 @@ export interface ShotOutput {
   frameDt: number
   end: Vec2
   result: ShotResult
+  events: ShotEvent[]
 }
 
 const round = (v: number) => Math.round(v * 1000) / 1000
@@ -108,12 +109,17 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
   let anchorX = x
   let anchorZ = z
   const maxSteps = Math.round(MAX_SIM_SECONDS / DT)
+  const events: ShotEvent[] = []
+  let lastHitT = -1
+  let inBoost = false
 
   for (let step = 1; step <= maxSteps; step++) {
     let decel = ROLL_DECEL
     let pushed = false
+    let boostNow = false
     for (const zone of hole.zones) {
       if (!inRect(x, z, zone)) continue
+      if (zone.kind === 'boost') boostNow = true
       if (zone.kind === 'sand') decel *= SAND_FACTOR
       if ((zone.kind === 'boost' || zone.kind === 'slope') && zone.dir) {
         const strength = zone.strength ?? 4
@@ -122,6 +128,9 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
         pushed = true
       }
     }
+
+    if (boostNow && !inBoost) events.push({ t: round(step * DT), kind: 'boost', strength: 1 })
+    inBoost = boostNow
 
     // Gentle pull toward the cup when the ball rolls slowly nearby.
     const toCupX = hole.cup.x - x
@@ -161,6 +170,10 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
       x = cx + nx * wallDist
       z = cz + nz * wallDist
       const vn = vx * nx + vz * nz
+      if (vn < -0.25 && step * DT - lastHitT > 0.05) {
+        events.push({ t: round(step * DT), kind: 'wall', strength: Math.min(1, -vn / 7) })
+        lastHitT = step * DT
+      }
       if (vn < 0) {
         vx -= (1 + WALL_RESTITUTION) * vn * nx
         vz -= (1 + WALL_RESTITUTION) * vn * nz
@@ -179,6 +192,7 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
       z = b.z + nz * minD
       const vn = vx * nx + vz * nz
       if (vn < 0) {
+        events.push({ t: round(step * DT), kind: 'bumper', strength: Math.min(1, -vn / 7) })
         vx -= (1 + BUMPER_RESTITUTION) * vn * nx
         vz -= (1 + BUMPER_RESTITUTION) * vn * nz
       }
@@ -189,6 +203,7 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
     if (inWater || !insidePolygon(x, z, hole.outline)) {
       frames.push(round(x), round(z))
       result = 'water'
+      events.push({ t: round((frames.length / 2 - 1) * FRAME_DT), kind: 'water', strength: 1 })
       break
     }
 
@@ -197,6 +212,7 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
       x = hole.cup.x
       z = hole.cup.z
       result = 'holed'
+      events.push({ t: round((frames.length / 2 - 1) * FRAME_DT), kind: 'cup', strength: 1 })
       break
     }
 
@@ -214,7 +230,7 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
   const last = frames.length - 2
   if (frames[last] !== round(x) || frames[last + 1] !== round(z)) frames.push(round(x), round(z))
   const end = result === 'water' ? { ...from } : { x: round(x), z: round(z) }
-  return { frames, frameDt: FRAME_DT, end, result }
+  return { frames, frameDt: FRAME_DT, end, result, events }
 }
 
 /** Duration of a shot's animation, in milliseconds. */

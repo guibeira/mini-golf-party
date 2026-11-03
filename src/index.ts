@@ -146,6 +146,14 @@ fn<Input>(
 )
 
 fn<Input>(
+  'mini-golf::rooms::leave',
+  'Leaves the room for good. The turn and the host role pass to the next player; an empty room goes back to the lobby.',
+  { type: 'object', properties: AUTH_PROPS, required: ['code', 'playerId', 'token'] },
+  { type: 'object', properties: { left: { type: 'boolean' } }, required: ['left'] },
+  (input) => store.leave(input.code, input.playerId, input.token),
+)
+
+fn<Input>(
   'mini-golf::rooms::shoot',
   'Shoots the ball for this player: angle in radians on the x,z plane (direction cos,sin) and power from 0 to 1. Only allowed on the player turn (room.turnPlayerId); simulates the whole shot and returns its trajectory, and the turn passes once the ball settles.',
   {
@@ -250,6 +258,10 @@ route('POST', '/golf/api/rooms/:code/join', 'mini-golf::http::join-room', 'POST 
 route('POST', '/golf/api/rooms/:code/start', 'mini-golf::http::start', 'POST /golf/api/rooms/:code/start.', (req) => {
   const body = bodyOf(req)
   return store.start(req.path_params?.code, body.playerId, body.token)
+})
+route('POST', '/golf/api/rooms/:code/leave', 'mini-golf::http::leave', 'POST /golf/api/rooms/:code/leave.', (req) => {
+  const body = bodyOf(req)
+  return store.leave(req.path_params?.code, body.playerId, body.token)
 })
 route('POST', '/golf/api/rooms/:code/shoot', 'mini-golf::http::shoot', 'POST /golf/api/rooms/:code/shoot.', (req) => {
   const body = bodyOf(req)

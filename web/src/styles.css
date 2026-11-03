@@ -498,3 +498,53 @@ button.link {
   background: rgba(255, 210, 63, 0.3);
   border-radius: 6px;
 }
+
+.corner {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 3;
+}
+
+.icon-btn {
+  background: var(--card);
+  border-radius: 999px;
+  min-height: 40px;
+  min-width: 40px;
+  padding: 8px 14px;
+  box-shadow: 0 4px 14px rgba(16, 52, 84, 0.18);
+}
+
+.icon-btn.leave {
+  color: var(--bad);
+}
+
+.confirm {
+  z-index: 5;
+  width: min(380px, calc(100% - 24px));
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.actions button {
+  flex: 1;
+}
+
+button.danger {
+  background: var(--bad);
+  color: #fff;
+}
+
+@media (max-width: 900px) {
+  .hud-top {
+    top: calc(max(12px, env(safe-area-inset-top)) + 50px);
+  }
+  .players {
+    top: 112px;
+  }
+}

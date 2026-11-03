@@ -53,6 +53,8 @@ export const api = {
   room: (code: string) => request<{ room: PublicRoom }>('GET', `/rooms/${encodeURIComponent(code)}`),
   start: (s: Session) =>
     request<{ room: PublicRoom }>('POST', `/rooms/${s.code}/start`, { playerId: s.playerId, token: s.token }),
+  leave: (s: Session) =>
+    request<{ left: boolean }>('POST', `/rooms/${s.code}/leave`, { playerId: s.playerId, token: s.token }),
   shoot: (s: Session, angle: number, power: number) =>
     request<{ room: PublicRoom; shot: Shot }>('POST', `/rooms/${s.code}/shoot`, {
       playerId: s.playerId,

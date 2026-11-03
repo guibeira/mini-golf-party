@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { MAX_STROKES, shotDurationMs } from '../../shared/physics.js'
 import type { PublicPlayer, PublicRoom, Session, Shot } from '../../shared/types.js'
 import { ApiError, type Joined, api } from './api'
+import { playShot, sfx } from './sound'
 
 const SESSION_KEY = 'mini-golf-party:session'
 const NAME_KEY = 'mini-golf-party:name'
@@ -127,6 +128,7 @@ function announceShot(player: PublicPlayer, shot: Shot) {
   // The shot response and the long-poll can both carry the same shot: announce it once.
   if (announced.has(shot.id)) return
   announced.add(shot.id)
+  playShot(shot)
   const mine = player.id === state.session?.playerId
   const delay = shotDurationMs(shot.frames, shot.frameDt)
   if (shot.result === 'holed') {
@@ -154,7 +156,9 @@ function applyRoom(room: PublicRoom, quiet = false) {
   const me = state.session?.playerId
   if (!quiet && me && room.phase === 'playing' && room.turnPlayerId === me && prev?.turnPlayerId !== me) {
     toast('Your turn! ⛳', 'info')
+    sfx.turn()
   }
+  if (!quiet && prev?.code === room.code && prev.phase !== 'finished' && room.phase === 'finished') sfx.fanfare()
   setState({ room, clockOffset: room.serverNow - Date.now() })
 }
 
@@ -252,7 +256,12 @@ export const actions = {
       toast(messageOf(error), 'bad')
     }
   },
-  leave: () => leaveRoom(),
+  leave: async () => {
+    const session = state.session
+    leaveRoom()
+    // Tell the server so the turn and the host role pass on right away.
+    if (session) await api.leave(session).catch(() => undefined)
+  },
   dismissError: () => setState({ error: null }),
 }
 

@@ -4,6 +4,7 @@ import { MAX_STROKES } from '../../shared/physics.js'
 import type { LeaderboardEntry, PublicPlayer, PublicRoom } from '../../shared/types.js'
 import { api } from './api'
 import { GameScene } from './Scene'
+import { setMuted, useMuted } from './sound'
 import { type GameState, actions, isAnimating, savedName, serverNow, useGame, useNow } from './store'
 
 const total = (p: PublicPlayer) => p.strokes.reduce((sum, s) => sum + (s ?? 0), 0)
@@ -19,6 +20,14 @@ export function App() {
   const moving = me ? isAnimating(me) : false
   const canShoot = !!room && !!me && room.phase === 'playing' && room.turnPlayerId === me.id && !room.turnShot && !me.done && !moving
   const onShoot = useCallback((angle: number, power: number) => void actions.shoot(angle, power), [])
+  const muted = useMuted()
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  const closeLeave = useCallback(() => setConfirmLeave(false), [])
+  const leaveGame = useCallback(() => {
+    setConfirmLeave(false)
+    void actions.leave()
+  }, [])
+  const midGame = !!room && (room.phase === 'playing' || room.phase === 'intermission')
 
   return (
     <div className="app">
@@ -39,6 +48,8 @@ export function App() {
         )}
         {room?.phase === 'intermission' && <Intermission room={room} />}
         {room?.phase === 'finished' && <Final room={room} meId={me?.id ?? null} busy={game.busy} />}
+        <Corner muted={muted} canLeave={midGame} onLeave={() => setConfirmLeave(true)} />
+        {confirmLeave && midGame && <ConfirmLeave code={room.code} onStay={closeLeave} onLeave={leaveGame} />}
         <Notices game={game} />
       </div>
     </div>
@@ -305,6 +316,59 @@ function Final({ room, meId, busy }: { room: PublicRoom; meId: string | null; bu
       <button className="link" onClick={actions.leave}>
         Leave room
       </button>
+    </section>
+  )
+}
+
+function Corner({ muted, canLeave, onLeave }: { muted: boolean; canLeave: boolean; onLeave: () => void }) {
+  return (
+    <div className="corner">
+      <button
+        className="icon-btn"
+        aria-label={muted ? 'Unmute sounds' : 'Mute sounds'}
+        aria-pressed={muted}
+        title={muted ? 'Unmute sounds' : 'Mute sounds'}
+        onClick={() => setMuted(!muted)}
+      >
+        {muted ? '\ud83d\udd07' : '\ud83d\udd0a'}
+      </button>
+      {canLeave && (
+        <button className="icon-btn leave" onClick={onLeave}>
+          Leave
+        </button>
+      )}
+    </div>
+  )
+}
+
+function ConfirmLeave({ code, onStay, onLeave }: { code: string; onStay: () => void; onLeave: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onStay()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onStay])
+  return (
+    <section
+      className="card modal confirm"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="leave-title"
+      aria-describedby="leave-desc"
+    >
+      <h2 id="leave-title">Leave this game?</h2>
+      <p id="leave-desc" className="lead">
+        You will leave room {code} and your score will not count. The others keep playing.
+      </p>
+      <div className="actions">
+        <button autoFocus onClick={onStay}>
+          Keep playing
+        </button>
+        <button className="danger" onClick={onLeave}>
+          Leave game
+        </button>
+      </div>
     </section>
   )
 }

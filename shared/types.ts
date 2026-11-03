@@ -47,6 +47,16 @@ export interface Course {
 
 export type ShotResult = 'rest' | 'holed' | 'water'
 
+export type ShotEventKind = 'wall' | 'bumper' | 'boost' | 'water' | 'cup'
+
+/** Something audible during a shot, `t` seconds after it starts. */
+export interface ShotEvent {
+  t: number
+  kind: ShotEventKind
+  /** 0..1, how hard the hit was. */
+  strength: number
+}
+
 export interface Shot {
   id: string
   playerId: string
@@ -58,6 +68,9 @@ export interface Shot {
   frames: number[]
   frameDt: number
   result: ShotResult
+  /** Shot power, 0..1. */
+  power: number
+  events: ShotEvent[]
   /** The player's strokes on this hole after this shot. */
   strokes: number
   at: number

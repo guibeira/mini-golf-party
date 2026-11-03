@@ -112,6 +112,28 @@ test('starting the game counts as presence for the host', async () => {
   assert.equal(room.turnPlayerId, host.session.playerId)
 })
 
+test('leaving passes the turn and the host role on, and an empty room resets to the lobby', async () => {
+  const { store } = setup()
+  const a = await store.create('Ana')
+  const code = a.session.code
+  const b = await store.join(code, 'Bia')
+  const c = await store.join(code, 'Caio')
+  await store.start(code, a.session.playerId, a.session.token)
+  await store.leave(code, a.session.playerId, a.session.token)
+  let { room } = await store.poll(code, undefined, b.session.playerId)
+  assert.equal(room.players.length, 2)
+  assert.equal(room.hostId, b.session.playerId)
+  assert.equal(room.turnPlayerId, b.session.playerId, 'the next seat takes the turn')
+  await assert.rejects(store.shoot(code, a.session.playerId, a.session.token, 0, 0.5), /session/)
+  await store.leave(code, b.session.playerId, b.session.token)
+  await store.leave(code, c.session.playerId, c.session.token)
+  ;({ room } = await store.poll(code, undefined, undefined))
+  assert.equal(room.players.length, 0)
+  assert.equal(room.phase, 'lobby')
+  const d = await store.join(code, 'Duda')
+  assert.equal(d.room.hostId, d.session.playerId, 'the first one back becomes host')
+})
+
 test('unknown room answers 404', async () => {
   const store = new RoomStore()
   await assert.rejects(store.get('ZZZZ'), (error: { status?: number }) => error.status === 404)
