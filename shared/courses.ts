@@ -1,13 +1,13 @@
 import type { Course } from './types.js'
 
-/** Percurso padrao: 4 buracos curtos, todos medidos em unidades do gramado. */
+/** Default course: 4 short holes, measured in green units. */
 export const COURSE: Course = {
-  id: 'parque',
-  name: 'Parque Ensolarado',
+  id: 'park',
+  name: 'Sunny Park',
   holes: [
     {
-      id: 'boas-vindas',
-      name: 'Reta de Boas-vindas',
+      id: 'welcome',
+      name: 'Welcome Straight',
       par: 2,
       outline: [
         { x: -1.5, z: 0 },
@@ -22,8 +22,8 @@ export const COURSE: Course = {
       zones: [],
     },
     {
-      id: 'curva-do-l',
-      name: 'Curva do L',
+      id: 'l-bend',
+      name: 'The L Bend',
       par: 3,
       outline: [
         { x: -1.5, z: 0 },
@@ -40,8 +40,8 @@ export const COURSE: Course = {
       zones: [{ kind: 'sand', min: { x: 3.4, z: 10 }, max: { x: 5.6, z: 11 } }],
     },
     {
-      id: 'ponte-do-lago',
-      name: 'Ponte sobre o Lago',
+      id: 'lake-bridge',
+      name: 'Lake Bridge',
       par: 3,
       outline: [
         { x: -3, z: 0 },
@@ -63,8 +63,8 @@ export const COURSE: Course = {
       ],
     },
     {
-      id: 'ladeira-maluca',
-      name: 'Ladeira Maluca',
+      id: 'crazy-slope',
+      name: 'Crazy Slope',
       par: 3,
       outline: [
         { x: -2, z: 0 },

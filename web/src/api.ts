@@ -24,7 +24,7 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown, 
     })
   } catch (error) {
     if (signal?.aborted) throw error
-    throw new ApiError(0, 'network', 'Sem conexao com o servidor do jogo.')
+    throw new ApiError(0, 'network', 'Cannot reach the game server.')
   }
   const text = await res.text()
   let data: unknown = null
@@ -35,7 +35,7 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown, 
   }
   if (!res.ok) {
     const err = (data as { error?: { code?: string; message?: string } } | null)?.error
-    throw new ApiError(res.status, err?.code ?? 'http_error', err?.message ?? `Erro ${res.status} no servidor.`)
+    throw new ApiError(res.status, err?.code ?? 'http_error', err?.message ?? `Server error ${res.status}.`)
   }
   return data as T
 }

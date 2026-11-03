@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// O site e servido pelo proprio worker em /golf (porta HTTP do iii).
-// `pnpm dev:web` sobe o Vite com HMR e encaminha /golf/api para o iii.
+// The site is served by the worker itself at /golf (iii's HTTP port).
+// `pnpm dev:web` starts Vite with HMR and proxies /golf/api to iii.
 export default defineConfig({
   root: 'web',
   base: '/golf/',

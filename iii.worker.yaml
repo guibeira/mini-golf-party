@@ -5,7 +5,7 @@ deploy: bundle
 manifest: package.json
 license: Apache-2.0
 tags: [game, multiplayer, 3d, http]
-description: Mini Golf Party - salas multiplayer de mini golf 3D servidas pelo worker http, com a fisica das tacadas simulada no servidor.
+description: Mini Golf Party - multiplayer 3D mini golf rooms served through the http worker, with shot physics simulated on the server.
 
 runtime:
   kind: javascript

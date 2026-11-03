@@ -11,7 +11,7 @@ const ENGINE_URL = process.env.III_URL ?? process.env.III_ENGINE_URL ?? 'ws://12
 const iii = registerWorker(ENGINE_URL, {
   workerName: WORKER_NAME,
   workerDescription:
-    'Mini Golf Party: salas multiplayer de mini golf 3D com fisica simulada no servidor; o site e a API ficam em /golf.',
+    'Mini Golf Party: multiplayer 3D mini golf rooms with server-side physics; the site and the API live at /golf.',
   invocationTimeoutMs: 30_000,
 })
 
@@ -27,7 +27,7 @@ async function stateGet<T>(key: string): Promise<T | null> {
     })
     return value ?? null
   } catch (error) {
-    console.warn(`[mini-golf] state::get ${key} falhou`, error)
+    console.warn(`[mini-golf] state::get ${key} failed`, error)
     return null
   }
 }
@@ -41,14 +41,14 @@ async function stateSet(key: string, value: unknown): Promise<void> {
   })
 }
 
-/** Salva salas no state com um pequeno atraso, juntando varias mudancas seguidas. */
+/** Saves rooms to state after a short delay, coalescing bursts of changes. */
 const pendingSaves = new Map<string, { room: Room; timer: NodeJS.Timeout }>()
 
 function saveRoom(room: Room): Promise<void> {
   if (!pendingSaves.has(room.code)) {
     const timer = setTimeout(() => {
       pendingSaves.delete(room.code)
-      stateSet(`room:${room.code}`, room).catch((error) => console.warn('[mini-golf] falha ao salvar', room.code, error))
+      stateSet(`room:${room.code}`, room).catch((error) => console.warn('[mini-golf] failed to save', room.code, error))
     }, 300)
     pendingSaves.set(room.code, { room, timer })
   }
@@ -81,7 +81,7 @@ const store = new RoomStore({
   load: (code) => stateGet<Room>(`room:${code}`),
   save: saveRoom,
   onFinished: (room) => {
-    recordLeaderboard(room).catch((error) => console.warn('[mini-golf] falha no ranking', error))
+    recordLeaderboard(room).catch((error) => console.warn('[mini-golf] failed to update the leaderboard', error))
   },
 })
 
@@ -89,7 +89,7 @@ const store = new RoomStore({
 
 type Schema = Record<string, unknown>
 const str = { type: 'string' }
-const ROOM: Schema = { type: 'object', description: 'Sala publica (PublicRoom): fase, buraco atual e jogadores.' }
+const ROOM: Schema = { type: 'object', description: 'Public room (PublicRoom): phase, current hole and players.' }
 const SESSION: Schema = {
   type: 'object',
   properties: { code: str, playerId: str, token: str },
@@ -115,7 +115,7 @@ type Input = Record<string, unknown>
 
 fn<Input>(
   'mini-golf::course::get',
-  'Percurso do Mini Golf Party: buracos com contorno, tee, buraco, blocos, bumpers e zonas.',
+  'The Mini Golf Party course: holes with outline, tee, cup, blocks, bumpers and zones.',
   { type: 'object', properties: {} },
   { type: 'object', description: 'Course' },
   async () => COURSE,
@@ -123,15 +123,15 @@ fn<Input>(
 
 fn<Input>(
   'mini-golf::rooms::create',
-  'Cria uma sala com codigo de 4 letras e entra nela como anfitriao. Guarde a sessao para as outras chamadas.',
-  { type: 'object', properties: { name: { type: 'string', description: 'Apelido (ate 16 letras).' } } },
+  'Creates a room with a 4-letter code and joins it as host. Keep the returned session for the other calls.',
+  { type: 'object', properties: { name: { type: 'string', description: 'Nickname (up to 16 characters).' } } },
   ROOM_AND_SESSION,
   (input) => store.create(input.name),
 )
 
 fn<Input>(
   'mini-golf::rooms::join',
-  'Entra numa sala pelo codigo. Com playerId e token de uma sessao anterior, reconecta o mesmo jogador.',
+  'Joins a room by code. With playerId and token from an earlier session, reconnects the same player.',
   { type: 'object', properties: { code: str, name: str, playerId: str, token: str }, required: ['code'] },
   ROOM_AND_SESSION,
   (input) => store.join(input.code, input.name, { playerId: input.playerId, token: input.token }),
@@ -139,7 +139,7 @@ fn<Input>(
 
 fn<Input>(
   'mini-golf::rooms::start',
-  'Comeca (ou recomeca) a partida. So o anfitriao pode chamar.',
+  'Starts (or restarts) the game. Only the host may call it.',
   { type: 'object', properties: AUTH_PROPS, required: ['code', 'playerId', 'token'] },
   ROOM_ONLY,
   (input) => store.start(input.code, input.playerId, input.token),
@@ -147,7 +147,7 @@ fn<Input>(
 
 fn<Input>(
   'mini-golf::rooms::shoot',
-  'Taca a bolinha do jogador: angle em radianos no plano x,z (direcao cos,sin) e power de 0 a 1. Simula a tacada inteira e retorna a trajetoria.',
+  'Shoots the ball for this player: angle in radians on the x,z plane (direction cos,sin) and power from 0 to 1. Only allowed on the player turn (room.turnPlayerId); simulates the whole shot and returns its trajectory, and the turn passes once the ball settles.',
   {
     type: 'object',
     properties: { ...AUTH_PROPS, angle: { type: 'number' }, power: { type: 'number', minimum: 0, maximum: 1 } },
@@ -159,7 +159,7 @@ fn<Input>(
 
 fn<Input>(
   'mini-golf::rooms::get',
-  'Le uma sala. Com since (versao), espera ate waitMs (no maximo 15000) por uma versao mais nova. Passe playerId para manter o jogador conectado: sem chamadas por 35 s ele fica ausente e nao segura o buraco.',
+  'Reads a room. With since (a version), waits up to waitMs (at most 15000) for a newer version. Pass playerId to keep the player connected: after 35 s without calls the player is marked away and no longer holds up the hole.',
   {
     type: 'object',
     properties: { code: str, since: { type: 'number' }, playerId: str, waitMs: { type: 'number' } },
@@ -171,7 +171,7 @@ fn<Input>(
 
 fn<Input>(
   'mini-golf::leaderboard::get',
-  'Melhores rodadas completas (menor total de tacadas primeiro).',
+  'Best complete rounds (fewest total strokes first).',
   { type: 'object', properties: {} },
   { type: 'object', properties: { entries: { type: 'array' } }, required: ['entries'] },
   async () => ({ entries: (await stateGet<LeaderboardEntry[]>('leaderboard')) ?? [] }),
@@ -219,7 +219,7 @@ function route(
       } catch (error) {
         if (error instanceof GameError) return json(error.status, { error: { code: error.code, message: error.message } })
         console.error(`[mini-golf] ${id}`, error)
-        return json(500, { error: { code: 'internal', message: 'Erro interno no servidor do jogo.' } })
+        return json(500, { error: { code: 'internal', message: 'Internal game server error.' } })
       }
     },
     { description, request_format: HTTP_REQUEST, response_format: HTTP_RESPONSE },
@@ -227,20 +227,20 @@ function route(
   iii.registerTrigger({ type: 'http', function_id: id, config: { api_path: apiPath, http_method: method } })
 }
 
-route('GET', '/golf', 'mini-golf::http::index', 'GET /golf: pagina do jogo.', () => readIndex(), true)
+route('GET', '/golf', 'mini-golf::http::index', 'GET /golf: the game page.', () => readIndex(), true)
 route(
   'GET',
   '/golf/assets/:file',
   'mini-golf::http::asset',
-  'GET /golf/assets/:file: arquivos JS/CSS do cliente.',
+  'GET /golf/assets/:file: client JS/CSS files.',
   (req) => readAsset(req.path_params?.file),
   true,
 )
-route('GET', '/golf/api/course', 'mini-golf::http::course', 'GET /golf/api/course: percurso.', async () => COURSE)
-route('GET', '/golf/api/leaderboard', 'mini-golf::http::leaderboard', 'GET /golf/api/leaderboard: ranking.', async () => ({
+route('GET', '/golf/api/course', 'mini-golf::http::course', 'GET /golf/api/course: the course.', async () => COURSE)
+route('GET', '/golf/api/leaderboard', 'mini-golf::http::leaderboard', 'GET /golf/api/leaderboard: best rounds.', async () => ({
   entries: (await stateGet<LeaderboardEntry[]>('leaderboard')) ?? [],
 }))
-route('POST', '/golf/api/rooms', 'mini-golf::http::create-room', 'POST /golf/api/rooms: cria sala.', (req) =>
+route('POST', '/golf/api/rooms', 'mini-golf::http::create-room', 'POST /golf/api/rooms: create a room.', (req) =>
   store.create(bodyOf(req).name),
 )
 route('POST', '/golf/api/rooms/:code/join', 'mini-golf::http::join-room', 'POST /golf/api/rooms/:code/join.', (req) => {
@@ -259,7 +259,7 @@ route(
   'GET',
   '/golf/api/rooms/:code',
   'mini-golf::http::room',
-  'GET /golf/api/rooms/:code?since=N&player=ID: long-poll da sala (ate 15 s).',
+  'GET /golf/api/rooms/:code?since=N&player=ID: long-poll the room (up to 15 s).',
   (req) => {
     const q = req.query_params ?? {}
     return store.poll(req.path_params?.code, q.since, q.player, q.since === undefined ? 0 : 15_000)
@@ -269,7 +269,7 @@ route(
 // ------------------------------------------------------------ lifecycle
 
 const ticker = setInterval(() => store.tick(), 250)
-console.log(`[mini-golf] worker conectando em ${ENGINE_URL}; site em /golf (raiz ${PROJECT_ROOT})`)
+console.log(`[mini-golf] worker connecting to ${ENGINE_URL}; site at /golf (root ${PROJECT_ROOT})`)
 
 let stopping = false
 const shutdown = async () => {

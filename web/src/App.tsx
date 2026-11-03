@@ -17,7 +17,7 @@ export function App() {
   const inGame = !!room && room.phase !== 'lobby'
   const hole = COURSE.holes[inGame ? Math.min(room.holeIndex, COURSE.holes.length - 1) : 0]
   const moving = me ? isAnimating(me) : false
-  const canShoot = !!room && !!me && room.phase === 'playing' && !me.done && !moving
+  const canShoot = !!room && !!me && room.phase === 'playing' && room.turnPlayerId === me.id && !room.turnShot && !me.done && !moving
   const onShoot = useCallback((angle: number, power: number) => void actions.shoot(angle, power), [])
 
   return (
@@ -26,6 +26,7 @@ export function App() {
         hole={hole}
         players={inGame ? room.players : []}
         meId={me?.id ?? null}
+        followId={room?.turnPlayerId ?? me?.id ?? null}
         canShoot={canShoot}
         attract={!inGame}
         onShoot={onShoot}
@@ -46,7 +47,7 @@ export function App() {
 
 function Home({ busy }: { busy: boolean }) {
   const [name, setName] = useState(savedName)
-  const [code, setCode] = useState(() => new URLSearchParams(location.search).get('sala')?.toUpperCase() ?? '')
+  const [code, setCode] = useState(() => new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '')
   const [board, setBoard] = useState<LeaderboardEntry[]>([])
   useEffect(() => {
     api.leaderboard().then((r) => setBoard(r.entries.slice(0, 5)), () => setBoard([]))
@@ -64,21 +65,21 @@ function Home({ busy }: { busy: boolean }) {
       <h1>
         <span aria-hidden>⛳</span> Mini Golf Party
       </h1>
-      <p className="lead">Mini golf 3D com os amigos, direto no navegador. Todo mundo taca ao mesmo tempo!</p>
+      <p className="lead">3D mini golf with friends, right in your browser. Take turns and watch every shot!</p>
       <label className="field">
-        <span>Seu apelido</span>
-        <input value={name} maxLength={16} placeholder="Ex.: Ana" onChange={(e) => setName(e.target.value)} />
+        <span>Your nickname</span>
+        <input value={name} maxLength={16} placeholder="e.g. Alex" onChange={(e) => setName(e.target.value)} />
       </label>
       {code ? null : (
         <form onSubmit={create}>
           <button className="primary" disabled={busy}>
-            Criar sala
+            Create room
           </button>
         </form>
       )}
       <form className="join" onSubmit={join}>
         <label className="field">
-          <span>{code ? 'Codigo da sala' : 'Ou entre com um codigo'}</span>
+          <span>{code ? 'Room code' : 'Or join with a code'}</span>
           <input
             value={code}
             maxLength={4}
@@ -88,24 +89,24 @@ function Home({ busy }: { busy: boolean }) {
           />
         </label>
         <button className={code ? 'primary' : ''} disabled={busy || code.length !== 4}>
-          Entrar
+          Join
         </button>
       </form>
       {code ? (
         <button className="link" onClick={() => setCode('')}>
-          Prefiro criar uma sala nova
+          Create a new room instead
         </button>
       ) : null}
       <ul className="how">
-        <li>Arraste a partir da sua bolinha para tras, como um estilingue, e solte.</li>
+        <li>On your turn, drag back from your ball like a slingshot, then let go.</li>
         <li>
-          {COURSE.holes.length} buracos, par {COURSE_PAR}. No maximo {MAX_STROKES} tacadas e 90 s por buraco.
+          {COURSE.holes.length} holes, par {COURSE_PAR}. At most {MAX_STROKES} strokes per hole and 30 s per turn.
         </li>
-        <li>Areia freia, setas empurram e a agua devolve a bola com +1 tacada.</li>
+        <li>Sand slows you down, arrows push you along and water sends the ball back with +1 stroke.</li>
       </ul>
       {board.length > 0 && (
         <div className="board">
-          <h2>Melhores rodadas</h2>
+          <h2>Best rounds</h2>
           <ol>
             {board.map((e, i) => (
               <li key={i}>
@@ -122,7 +123,7 @@ function Home({ busy }: { busy: boolean }) {
 
 function Lobby({ room, meId, busy }: { room: PublicRoom; meId: string | null; busy: boolean }) {
   const [copied, setCopied] = useState(false)
-  const link = `${location.origin}${location.pathname}?sala=${room.code}`
+  const link = `${location.origin}${location.pathname}?room=${room.code}`
   const host = room.players.find((p) => p.id === room.hostId)
   const copy = async () => {
     try {
@@ -135,32 +136,32 @@ function Lobby({ room, meId, busy }: { room: PublicRoom; meId: string | null; bu
   }
   return (
     <section className="card lobby">
-      <p className="eyebrow">Sala</p>
+      <p className="eyebrow">Room</p>
       <p className="room-code">{room.code}</p>
       <div className="share">
-        <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Link da sala" />
-        <button onClick={copy}>{copied ? 'Copiado!' : 'Copiar link'}</button>
+        <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Room link" />
+        <button onClick={copy}>{copied ? 'Copied!' : 'Copy link'}</button>
       </div>
-      <h2>Jogadores ({room.players.length}/8)</h2>
+      <h2>Players ({room.players.length}/8)</h2>
       <ul className="chips">
         {room.players.map((p) => (
           <li key={p.id} style={{ borderColor: p.color }}>
             <span className="dot" style={{ background: p.color }} />
             {p.name}
             {p.id === room.hostId ? ' \ud83d\udc51' : ''}
-            {p.id === meId ? ' (voce)' : ''}
+            {p.id === meId ? ' (you)' : ''}
           </li>
         ))}
       </ul>
       {meId === room.hostId ? (
         <button className="primary" disabled={busy} onClick={() => void actions.start()}>
-          Comecar partida
+          Start game
         </button>
       ) : (
-        <p className="waiting">Esperando {host?.name ?? 'o anfitriao'} comecar...</p>
+        <p className="waiting">Waiting for {host?.name ?? 'the host'} to start...</p>
       )}
       <button className="link" onClick={actions.leave}>
-        Sair da sala
+        Leave room
       </button>
     </section>
   )
@@ -178,28 +179,46 @@ function Hud({
   canShoot: boolean
 }) {
   const hole = COURSE.holes[room.holeIndex]
-  const remaining = room.holeEndsAt === null ? null : Math.max(0, Math.ceil((room.holeEndsAt - serverNow()) / 1000))
+  const turnPlayer = room.players.find((p) => p.id === room.turnPlayerId) ?? null
+  const myTurn = !!me && turnPlayer?.id === me.id
+  const remaining =
+    room.turnEndsAt === null || room.turnShot ? null : Math.max(0, Math.ceil((room.turnEndsAt - serverNow()) / 1000))
   const strokes = me?.strokes[room.holeIndex] ?? 0
   let hint = ''
-  if (room.phase === 'playing' && me) {
-    if (me.done) hint = me.holed ? 'Boa! Espere os outros terminarem.' : 'Acabaram as tacadas. Espere o proximo buraco.'
-    else if (moving) hint = 'Rolando...'
-    else if (canShoot) hint = `Tacada ${strokes + 1} de ${MAX_STROKES}: arraste a partir da sua bolinha e solte`
+  if (room.phase === 'playing') {
+    if (canShoot) hint = `Your turn! Stroke ${strokes + 1} of ${MAX_STROKES}: drag back from your ball and let go`
+    else if (myTurn && (moving || room.turnShot)) hint = 'Rolling...'
+    else if (turnPlayer) {
+      const prefix = me?.done ? (me.holed ? 'Nice! ' : 'Out of strokes. ') : ''
+      hint = `${prefix}Watching ${turnPlayer.name}...`
+    } else hint = 'Waiting for players...'
   }
   return (
     <>
       <header className="hud-top">
         <span className="pill">
-          Buraco <b>{room.holeIndex + 1}</b>/{room.holeCount} · {hole.name} · Par {hole.par}
+          Hole <b>{room.holeIndex + 1}</b>/{room.holeCount} · {hole.name} · Par {hole.par}
         </span>
-        {remaining !== null && <span className={`pill timer${remaining <= 15 ? ' warn' : ''}`}>{remaining}s</span>}
-        <span className="pill muted">Sala {room.code}</span>
+        {turnPlayer && room.phase === 'playing' && (
+          <span className={`pill turn${myTurn ? ' mine' : ''}`} style={{ borderColor: turnPlayer.color }}>
+            <span className="dot" style={{ background: turnPlayer.color }} />
+            {myTurn ? 'Your turn' : `${turnPlayer.name}'s turn`}
+            {remaining !== null && <b className={remaining <= 10 ? 'warn' : ''}>{remaining}s</b>}
+          </span>
+        )}
+        <span className="pill muted">Room {room.code}</span>
       </header>
-      <aside className="players" aria-label="Placar do buraco">
+      <aside className="players" aria-label="Hole scoreboard">
         {room.players.map((p) => (
-          <div key={p.id} className={`player-row${p.id === me?.id ? ' me' : ''}${p.connected ? '' : ' away'}`}>
+          <div
+            key={p.id}
+            className={`player-row${p.id === me?.id ? ' me' : ''}${p.id === room.turnPlayerId ? ' turn' : ''}${p.connected ? '' : ' away'}`}
+          >
             <span className="dot" style={{ background: p.color }} />
-            <span className="name">{p.name}</span>
+            <span className="name">
+              {p.id === room.turnPlayerId ? '\u25b6 ' : ''}
+              {p.name}
+            </span>
             <span className="strokes">{p.strokes[room.holeIndex] ?? 0}</span>
             <span className="status">{p.holed ? '\u26f3' : p.done ? '\u2716' : p.connected ? '' : '\ud83d\udca4'}</span>
           </div>
@@ -216,7 +235,7 @@ function ScoreTable({ room }: { room: PublicRoom }) {
       <table className="scores">
         <thead>
           <tr>
-            <th>Jogador</th>
+            <th>Player</th>
             {COURSE.holes.map((h, i) => (
               <th key={h.id}>{i + 1}</th>
             ))}
@@ -261,9 +280,9 @@ function Intermission({ room }: { room: PublicRoom }) {
   const last = room.holeIndex + 1 >= room.holeCount
   return (
     <section className="card modal">
-      <h2>Fim do buraco {room.holeIndex + 1}</h2>
+      <h2>End of hole {room.holeIndex + 1}</h2>
       <ScoreTable room={room} />
-      <p className="waiting">{last ? `Resultado final em ${seconds}s` : `Proximo buraco em ${seconds}s`}</p>
+      <p className="waiting">{last ? `Final results in ${seconds}s` : `Next hole in ${seconds}s`}</p>
     </section>
   )
 }
@@ -273,18 +292,18 @@ function Final({ room, meId, busy }: { room: PublicRoom; meId: string | null; bu
   const winner = podium[0]
   return (
     <section className="card modal">
-      <p className="eyebrow">Fim de jogo</p>
-      <h2 className="winner">{'\ud83c\udfc6'} {winner ? `${winner.name} venceu com ${total(winner)}!` : 'Fim de jogo!'}</h2>
+      <p className="eyebrow">Game over</p>
+      <h2 className="winner">{'\ud83c\udfc6'} {winner ? `${winner.name} wins with ${total(winner)}!` : 'Game over!'}</h2>
       <ScoreTable room={room} />
       {meId === room.hostId ? (
         <button className="primary" disabled={busy} onClick={() => void actions.start()}>
-          Jogar de novo
+          Play again
         </button>
       ) : (
-        <p className="waiting">O anfitriao pode comecar outra partida.</p>
+        <p className="waiting">The host can start another game.</p>
       )}
       <button className="link" onClick={actions.leave}>
-        Sair da sala
+        Leave room
       </button>
     </section>
   )
@@ -300,12 +319,12 @@ function Notices({ game }: { game: GameState }) {
           </div>
         ))}
       </div>
-      {game.connection === 'reconnecting' && <div className="banner">Reconectando ao servidor...</div>}
+      {game.connection === 'reconnecting' && <div className="banner">Reconnecting to the server...</div>}
       {game.error && (
         <div className="banner error" role="alert">
           {game.error}
           <button className="link" onClick={actions.dismissError}>
-            Fechar
+            Dismiss
           </button>
         </div>
       )}

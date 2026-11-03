@@ -4,11 +4,13 @@ import { MAX_STROKES, PENALTY_SCORE, clampPower, shotDurationMs, simulateShot } 
 import type { Phase, PublicPlayer, PublicRoom, Session, Shot, Vec2 } from '../shared/types.js'
 
 export const MAX_PLAYERS = 8
-export const HOLE_TIME_MS = 90_000
+/** Time a player has to shoot on their turn; running out costs one stroke. */
+export const TURN_TIME_MS = 30_000
 export const INTERMISSION_MS = 6_000
 export const DISCONNECT_MS = 35_000
 export const ROOM_IDLE_MS = 2 * 60 * 60 * 1000
-const SETTLE_MS = 700
+/** Pause after a ball stops before the turn passes, so everyone sees where it landed. */
+export const SETTLE_MS = 900
 const COLORS = ['#ff5d5d', '#4da3ff', '#ffd23f', '#7ae582', '#c77dff', '#ff9f43', '#48dbfb', '#ff6fb5']
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
@@ -25,7 +27,9 @@ export interface Room {
   courseId: string
   holeIndex: number
   hostId: string
-  holeEndsAt: number | null
+  turnPlayerId: string | null
+  turnEndsAt: number | null
+  turnShot: boolean
   nextAt: number | null
   createdAt: number
   updatedAt: number
@@ -53,7 +57,7 @@ export function normalizeCode(raw: unknown): string {
   const code = String(raw ?? '')
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '')
-  if (!/^[A-Z0-9]{4}$/.test(code)) throw new GameError(400, 'invalid_code', 'O codigo da sala tem 4 letras ou numeros.')
+  if (!/^[A-Z0-9]{4}$/.test(code)) throw new GameError(400, 'invalid_code', 'Room codes are 4 letters or digits.')
   return code
 }
 
@@ -62,7 +66,7 @@ function cleanName(raw: unknown): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 16)
-  return name || 'Jogador'
+  return name || 'Player'
 }
 
 export function totalScore(player: PublicPlayer): number {
@@ -80,7 +84,6 @@ export class RoomStore {
   }
 
   view(room: Room): PublicRoom {
-    const now = this.now()
     return {
       code: room.code,
       version: room.version,
@@ -89,9 +92,11 @@ export class RoomStore {
       holeIndex: room.holeIndex,
       holeCount: COURSE.holes.length,
       hostId: room.hostId,
-      holeEndsAt: room.holeEndsAt,
+      turnPlayerId: room.turnPlayerId,
+      turnEndsAt: room.turnEndsAt,
+      turnShot: room.turnShot,
       nextAt: room.nextAt,
-      serverNow: now,
+      serverNow: this.now(),
       players: room.players.map(({ token: _t, lastSeen: _l, busyUntil: _b, ...pub }) => pub),
     }
   }
@@ -99,11 +104,10 @@ export class RoomStore {
   async create(name: unknown): Promise<{ room: PublicRoom; session: Session }> {
     let code = ''
     for (let attempt = 0; attempt < 20 && !code; attempt++) {
-      const bytes = randomBytes(4)
-      const candidate = Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('')
+      const candidate = Array.from(randomBytes(4), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('')
       if (!(await this.find(candidate))) code = candidate
     }
-    if (!code) throw new GameError(503, 'no_code', 'Nao foi possivel gerar um codigo de sala.')
+    if (!code) throw new GameError(503, 'no_code', 'Could not generate a room code.')
     const now = this.now()
     const room: Room = {
       code,
@@ -112,7 +116,9 @@ export class RoomStore {
       courseId: COURSE.id,
       holeIndex: 0,
       hostId: '',
-      holeEndsAt: null,
+      turnPlayerId: null,
+      turnEndsAt: null,
+      turnShot: false,
       nextAt: null,
       createdAt: now,
       updatedAt: now,
@@ -138,7 +144,7 @@ export class RoomStore {
       this.commit(room)
       return { room: this.view(room), session: { code: room.code, playerId: existing.id, token: existing.token } }
     }
-    if (room.players.length >= MAX_PLAYERS) throw new GameError(409, 'room_full', 'A sala ja esta cheia (8 jogadores).')
+    if (room.players.length >= MAX_PLAYERS) throw new GameError(409, 'room_full', 'This room is full (8 players).')
     const player = this.addPlayer(room, name)
     this.commit(room)
     return { room: this.view(room), session: { code: room.code, playerId: player.id, token: player.token } }
@@ -147,9 +153,9 @@ export class RoomStore {
   async start(rawCode: unknown, playerId: unknown, token: unknown): Promise<{ room: PublicRoom }> {
     const room = await this.get(rawCode)
     const player = this.auth(room, playerId, token)
-    if (player.id !== room.hostId) throw new GameError(403, 'not_host', 'So quem criou a sala pode comecar.')
+    if (player.id !== room.hostId) throw new GameError(403, 'not_host', 'Only the host can start the game.')
     if (room.phase !== 'lobby' && room.phase !== 'finished')
-      throw new GameError(409, 'already_playing', 'A partida ja comecou.')
+      throw new GameError(409, 'already_playing', 'The game has already started.')
     for (const p of room.players) p.strokes = []
     this.startHole(room, 0)
     this.commit(room)
@@ -166,15 +172,14 @@ export class RoomStore {
     const room = await this.get(rawCode)
     const player = this.auth(room, playerId, token)
     const now = this.now()
-    player.lastSeen = now
-    player.connected = true
-    if (room.phase !== 'playing') throw new GameError(409, 'not_playing', 'Nao ha buraco em jogo agora.')
-    if (player.done) throw new GameError(409, 'hole_done', 'Voce ja terminou este buraco.')
-    if (now < player.busyUntil - 150) throw new GameError(409, 'ball_moving', 'Espere a bolinha parar.')
+    if (room.phase !== 'playing') throw new GameError(409, 'not_playing', 'No hole is being played right now.')
+    if (player.done) throw new GameError(409, 'hole_done', 'You already finished this hole.')
+    if (room.turnPlayerId !== player.id) throw new GameError(409, 'not_your_turn', "It's not your turn yet.")
+    if (room.turnShot) throw new GameError(409, 'ball_moving', 'Wait for your ball to stop.')
     const a = Number(angle)
     const p = clampPower(Number(power))
-    if (!Number.isFinite(a)) throw new GameError(400, 'invalid_angle', 'Angulo invalido.')
-    if (p < 0.02) throw new GameError(400, 'invalid_power', 'Tacada fraca demais.')
+    if (!Number.isFinite(a)) throw new GameError(400, 'invalid_angle', 'Invalid angle.')
+    if (p < 0.02) throw new GameError(400, 'invalid_power', 'Shot too weak.')
 
     const index = room.holeIndex
     const hole = COURSE.holes[index]
@@ -204,11 +209,14 @@ export class RoomStore {
     }
     player.lastShot = shot
     player.busyUntil = now + shotDurationMs(sim.frames, sim.frameDt)
+    // The turn passes once the ball has stopped and everyone had a moment to see it.
+    room.turnShot = true
+    room.turnEndsAt = player.busyUntil + SETTLE_MS
     this.commit(room)
     return { room: this.view(room), shot }
   }
 
-  /** Long-poll: responde quando a sala muda de versao ou quando o tempo de espera acaba. */
+  /** Long-poll: resolves when the room's version changes or the wait times out. */
   async poll(rawCode: unknown, since: unknown, playerId: unknown, waitMs = 15_000): Promise<{ room: PublicRoom }> {
     const room = await this.get(rawCode)
     const player = room.players.find((p) => p.id === playerId)
@@ -236,7 +244,7 @@ export class RoomStore {
     return { room: this.view(latest) }
   }
 
-  /** Avanca o relogio das salas: fim de buraco, intervalo, desconexoes e limpeza. */
+  /** Advances every room's clock: turns, hole end, intermission, disconnects and cleanup. */
   tick(): void {
     const now = this.now()
     for (const room of this.rooms.values()) {
@@ -258,30 +266,7 @@ export class RoomStore {
       }
 
       if (room.phase === 'playing') {
-        const index = room.holeIndex
-        if (room.holeEndsAt !== null && now >= room.holeEndsAt) {
-          for (const p of room.players) {
-            if (p.done) continue
-            p.done = true
-            p.strokes[index] = PENALTY_SCORE
-            changed = true
-          }
-        }
-        // Jogadores desconectados nao seguram o buraco para quem esta jogando.
-        const allDone =
-          room.players.some((p) => p.connected || p.done) && room.players.every((p) => p.done || !p.connected)
-        const settled = room.players.every((p) => now >= p.busyUntil + SETTLE_MS)
-        if (allDone && settled) {
-          for (const p of room.players) {
-            if (p.done) continue
-            p.done = true
-            p.strokes[index] = PENALTY_SCORE
-          }
-          room.phase = 'intermission'
-          room.holeEndsAt = null
-          room.nextAt = now + INTERMISSION_MS
-          changed = true
-        }
+        if (this.advanceTurn(room, now)) changed = true
       } else if (room.phase === 'intermission' && room.nextAt !== null && now >= room.nextAt) {
         if (room.holeIndex + 1 < COURSE.holes.length) {
           this.startHole(room, room.holeIndex + 1)
@@ -300,10 +285,83 @@ export class RoomStore {
     }
   }
 
+  /** Passes the turn when it is over (ball settled, timeout, player gone). Returns true on change. */
+  private advanceTurn(room: Room, now: number): boolean {
+    const index = room.holeIndex
+    const current = room.players.find((p) => p.id === room.turnPlayerId)
+    const expired = room.turnEndsAt !== null && now >= room.turnEndsAt
+    let changed = false
+    let pass = false
+    if (!current) {
+      pass = true
+    } else if (room.turnShot) {
+      pass = expired
+    } else if (current.done || !current.connected) {
+      pass = true
+    } else if (expired) {
+      // Ran out of time: one stroke and the turn moves on.
+      const strokes = (current.strokes[index] ?? 0) + 1
+      if (strokes >= MAX_STROKES) {
+        current.done = true
+        current.strokes[index] = PENALTY_SCORE
+      } else {
+        current.strokes[index] = strokes
+      }
+      pass = true
+      changed = true
+    }
+    if (!pass) return changed
+
+    const next = this.nextPlayer(room, room.turnPlayerId)
+    if (next) {
+      this.beginTurn(room, next.id)
+      return true
+    }
+    const allDone = room.players.every((p) => p.done)
+    const someoneHere = room.players.some((p) => p.connected)
+    if (allDone || someoneHere) {
+      // Everyone finished, or the only players left are disconnected: close the hole.
+      for (const p of room.players) {
+        if (p.done) continue
+        p.done = true
+        p.strokes[index] = PENALTY_SCORE
+      }
+      room.phase = 'intermission'
+      room.turnPlayerId = null
+      room.turnEndsAt = null
+      room.turnShot = false
+      room.nextAt = now + INTERMISSION_MS
+      return true
+    }
+    // Nobody is connected: pause the hole until someone comes back.
+    if (room.turnPlayerId !== null) {
+      this.beginTurn(room, null)
+      return true
+    }
+    return changed
+  }
+
+  /** Next player in seat order after `afterId` who still has to play (may be the same player). */
+  private nextPlayer(room: Room, afterId: string | null): Player | null {
+    const n = room.players.length
+    const start = room.players.findIndex((p) => p.id === afterId)
+    for (let k = 1; k <= n; k++) {
+      const p = room.players[(start + k + n) % n]
+      if (p && !p.done && p.connected) return p
+    }
+    return null
+  }
+
+  private beginTurn(room: Room, playerId: string | null): void {
+    room.turnPlayerId = playerId
+    room.turnShot = false
+    room.turnEndsAt = playerId ? this.now() + TURN_TIME_MS : null
+  }
+
   async get(rawCode: unknown): Promise<Room> {
     const code = normalizeCode(rawCode)
     const room = await this.find(code)
-    if (!room) throw new GameError(404, 'room_not_found', `A sala ${code} nao existe.`)
+    if (!room) throw new GameError(404, 'room_not_found', `Room ${code} does not exist.`)
     return room
   }
 
@@ -312,6 +370,10 @@ export class RoomStore {
     if (cached) return cached
     const loaded = (await this.options.load?.(code)) ?? null
     if (loaded && loaded.code === code && Array.isArray(loaded.players)) {
+      // Rooms saved before turns existed have no turn fields yet.
+      loaded.turnPlayerId ??= null
+      loaded.turnEndsAt ??= null
+      loaded.turnShot ??= false
       this.rooms.set(code, loaded)
       return loaded
     }
@@ -320,18 +382,22 @@ export class RoomStore {
 
   private auth(room: Room, playerId: unknown, token: unknown): Player {
     const player = room.players.find((p) => p.id === playerId && p.token === token)
-    if (!player) throw new GameError(401, 'bad_session', 'Sessao invalida para esta sala. Entre de novo.')
+    if (!player) throw new GameError(401, 'bad_session', 'Invalid session for this room. Please join again.')
+    // Any authenticated call proves the player is still here.
+    player.lastSeen = this.now()
+    player.connected = true
     return player
   }
 
   private addPlayer(room: Room, name: unknown): Player {
     const used = new Set(room.players.map((p) => p.color))
     const color = COLORS.find((c) => !used.has(c)) ?? COLORS[room.players.length % COLORS.length]
-    const now = this.now()
     const hole = COURSE.holes[room.holeIndex]
     const lateStart = room.phase === 'playing' || room.phase === 'intermission'
     const strokes: number[] = []
     if (lateStart) for (let i = 0; i < room.holeIndex; i++) strokes[i] = PENALTY_SCORE
+    if (room.phase === 'playing') strokes[room.holeIndex] = 0
+    if (room.phase === 'intermission') strokes[room.holeIndex] = PENALTY_SCORE
     const player: Player = {
       id: randomUUID(),
       token: randomBytes(16).toString('hex'),
@@ -343,21 +409,17 @@ export class RoomStore {
       done: room.phase === 'intermission',
       connected: true,
       lastShot: null,
-      lastSeen: now,
+      lastSeen: this.now(),
       busyUntil: 0,
     }
-    if (room.phase === 'playing') strokes[room.holeIndex] = 0
-    if (room.phase === 'intermission') strokes[room.holeIndex] = PENALTY_SCORE
     room.players.push(player)
     return player
   }
 
   private startHole(room: Room, index: number): void {
     const hole = COURSE.holes[index]
-    const now = this.now()
     room.phase = 'playing'
     room.holeIndex = index
-    room.holeEndsAt = now + HOLE_TIME_MS
     room.nextAt = null
     for (const p of room.players) {
       p.ball = { ...hole.tee }
@@ -367,13 +429,18 @@ export class RoomStore {
       p.busyUntil = 0
       p.strokes[index] = 0
     }
+    // The first shooter rotates every hole so nobody always tees off first.
+    const n = room.players.length
+    const order = room.players.map((_, i) => room.players[(index + i) % n])
+    const first = order.find((p) => p.connected) ?? null
+    this.beginTurn(room, first?.id ?? null)
   }
 
   private commit(room: Room): void {
     room.version += 1
     room.updatedAt = this.now()
     this.rooms.set(room.code, room)
-    this.options.save?.(room).catch((error) => console.warn('[mini-golf] falha ao salvar sala', room.code, error))
+    this.options.save?.(room).catch((error) => console.warn('[mini-golf] failed to save room', room.code, error))
     const waiting = this.waiters.get(room.code)
     if (waiting) for (const wake of [...waiting]) wake()
   }

@@ -5,7 +5,7 @@ import { resumeSaved } from './store'
 import './styles.css'
 
 const root = document.getElementById('root')
-if (!root) throw new Error('#root nao encontrado')
+if (!root) throw new Error('#root not found')
 createRoot(root).render(
   <StrictMode>
     <App />

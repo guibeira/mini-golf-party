@@ -34,7 +34,7 @@ function text(status: number, body: string, type: string, cache: string): HttpRe
   return { status_code: status, headers: { 'Content-Type': type, 'Cache-Control': cache }, body }
 }
 
-const notFound = () => text(404, 'Arquivo nao encontrado.', 'text/plain; charset=utf-8', 'no-store')
+const notFound = () => text(404, 'File not found.', 'text/plain; charset=utf-8', 'no-store')
 
 export async function readIndex(): Promise<HttpResult> {
   try {
@@ -42,14 +42,14 @@ export async function readIndex(): Promise<HttpResult> {
   } catch {
     return text(
       503,
-      `O cliente ainda nao foi compilado. Rode "pnpm build" ou "pnpm dev" em ${PROJECT_ROOT}.`,
+      `The client has not been built yet. Run "pnpm build" or "pnpm dev" in ${PROJECT_ROOT}.`,
       'text/plain; charset=utf-8',
       'no-store',
     )
   }
 }
 
-/** Serve um arquivo gerado pelo Vite em dist/web/assets (nomes com hash, cache longo). */
+/** Serves a Vite-built file from dist/web/assets (hashed names, long cache). */
 export async function readAsset(file: unknown): Promise<HttpResult> {
   const name = String(file ?? '')
   const type = TYPES[extname(name)]

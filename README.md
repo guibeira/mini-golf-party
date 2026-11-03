@@ -1,67 +1,75 @@
 # Mini Golf Party ⛳
 
-Mini golf 3D multiplayer no navegador, rodando como um worker do [iii](https://iii.dev).
-Ate 8 jogadores por sala, todos tacam ao mesmo tempo; as bolinhas dos outros aparecem
-como "fantasmas" (sem colisao entre bolas).
+Turn-based 3D mini golf for up to 8 players, right in the browser, running as an
+[iii](https://iii.dev) worker.
 
-## Jogar
+## Play
 
-1. Abra `http://127.0.0.1:3111/golf` (na rede local: `http://<ip-desta-maquina>:3111/golf`).
-2. Crie uma sala e mande o link `?sala=CODIGO` para os amigos.
-3. Arraste a partir da sua bolinha para tras (estilingue) e solte.
+1. Open `http://127.0.0.1:3111/golf` (on your LAN: `http://<this-machine-ip>:3111/golf`).
+2. Create a room and share the `?room=CODE` link with your friends.
+3. On your turn, drag back from your ball like a slingshot and let go. Everyone watches
+   every shot, and the camera follows whoever is up.
 
-Regras: 4 buracos (par 11), no maximo 6 tacadas e 90 s por buraco; quem nao acerta leva 7.
-Areia freia, setas empurram (acelerador e ladeira), agua devolve a bola com +1 tacada.
+Rules: 4 holes (par 11). Players take turns in seat order and the first shooter rotates
+every hole. You get 30 s per turn (running out costs one stroke) and at most 6 strokes
+per hole; not holing out scores 7. Sand slows the ball, arrows push it (boost pads and
+slopes), and water sends it back with +1 stroke. Disconnected players are skipped.
 
-## Como funciona
+## How it works
 
 ```
-navegador --HTTP--> worker http do iii (porta 3111) --> worker mini-golf-party (Node)
-                                                          |-- fisica da tacada (shared/physics.ts)
-                                                          '-- state::get/set (scope mini-golf)
+browser --HTTP--> iii http worker (port 3111) --> mini-golf-party worker (Node)
+                                                    |-- shot physics (shared/physics.ts)
+                                                    '-- state::get/set (scope mini-golf)
 ```
 
-- **Fisica no servidor.** `mini-golf::rooms::shoot` simula a tacada inteira de uma vez
-  (2D, 120 Hz) e devolve a trajetoria amostrada a 30 Hz; todos os navegadores reproduzem
-  a mesma animacao. Sem dessincronia, sem trapaca, latencia irrelevante.
-- **Tempo real por long-poll.** `GET /golf/api/rooms/:code?since=N` responde assim que a
-  sala muda de versao (ou em 15 s).
-- **Persistencia.** Salas ficam em `state` (`mini-golf` / `room:<CODIGO>`) e sobrevivem a
-  reinicios do worker; o ranking fica em `mini-golf` / `leaderboard`.
-- **O proprio worker serve o site** (`GET /golf` e `/golf/assets/:file`), entao nao ha
-  servidor separado.
+- **Server-side physics.** `mini-golf::rooms::shoot` simulates the whole shot at once
+  (2D, 120 Hz) and returns the trajectory sampled at 30 Hz; every browser replays the
+  same animation. No desync, no cheating, and latency does not matter.
+- **Turns live on the server.** The room carries `turnPlayerId`, `turnEndsAt` and
+  `turnShot`; after a shot the turn passes once the ball has settled.
+- **Live updates by long-poll.** `GET /golf/api/rooms/:code?since=N` answers as soon as
+  the room's version changes (or after 15 s).
+- **Persistence.** Rooms are stored in `state` (`mini-golf` / `room:<CODE>`) and survive
+  worker restarts; the leaderboard is `mini-golf` / `leaderboard`.
+- **The worker serves the site itself** (`GET /golf` and `/golf/assets/:file`), so there
+  is no separate web server.
 
-Por que HTTP e nao `iii-browser-sdk`: o engine deste projeto so expoe o listener privado
-(`ws://127.0.0.1:49190`). Conectar navegadores direto exigiria um listener publico com RBAC;
-o worker `http` ja e publico e so expoe as rotas do jogo.
+Why HTTP instead of `iii-browser-sdk`: this engine only exposes its private listener
+(`ws://127.0.0.1:49190`). Connecting browsers directly would need a public, RBAC-protected
+listener; the `http` worker is already public and only exposes the game's routes.
 
-## Jogar pelo barramento (bots e agentes)
+## Playing over the bus (bots and agents)
 
-Todas as acoes tambem sao funcoes do iii:
+Every action is also an iii function:
 
-| Funcao | O que faz |
+| Function | What it does |
 |---|---|
-| `mini-golf::rooms::create { name }` | cria a sala e devolve `session { code, playerId, token }` |
-| `mini-golf::rooms::join { code, name, playerId?, token? }` | entra (ou reconecta) |
-| `mini-golf::rooms::start { code, playerId, token }` | comeca a partida (anfitriao) |
-| `mini-golf::rooms::shoot { code, playerId, token, angle, power }` | taca; `angle` em radianos no plano x,z |
-| `mini-golf::rooms::get { code, since?, playerId?, waitMs? }` | le a sala; passe `playerId` para continuar conectado |
-| `mini-golf::course::get`, `mini-golf::leaderboard::get` | percurso e ranking |
+| `mini-golf::rooms::create { name }` | creates a room and returns `session { code, playerId, token }` |
+| `mini-golf::rooms::join { code, name, playerId?, token? }` | joins (or reconnects) |
+| `mini-golf::rooms::start { code, playerId, token }` | starts the game (host only) |
+| `mini-golf::rooms::shoot { code, playerId, token, angle, power }` | shoots on your turn; `angle` in radians on the x,z plane |
+| `mini-golf::rooms::get { code, since?, playerId?, waitMs? }` | reads the room; pass `playerId` to stay connected |
+| `mini-golf::course::get`, `mini-golf::leaderboard::get` | course and best rounds |
 
-## Desenvolvimento
+A bot shoots when `room.turnPlayerId` is its `playerId` and `room.turnShot` is false.
+It must make a call at least every 35 s (for example `rooms::get` with `playerId`),
+otherwise it is marked away and its turns are skipped.
+
+## Development
 
 ```bash
 pnpm install
-pnpm dev        # o compose roda isto: compila o cliente, observa web/ e reinicia o worker
-pnpm dev:web    # Vite com HMR em http://localhost:5173/golf/ (API encaminhada para a porta 3111)
-pnpm test       # fisica, pistas e fluxo das salas
+pnpm dev        # what compose runs: builds the client, watches web/, restarts the worker
+pnpm dev:web    # Vite with HMR at http://localhost:5173/golf/ (API proxied to port 3111)
+pnpm test       # physics, courses, turns and room flow
 pnpm typecheck
 pnpm build      # dist/server + dist/web
 ```
 
-Estrutura: `shared/` (tipos, pistas, fisica, usados pelo servidor e pelo cliente),
-`src/` (worker: salas, rotas HTTP, arquivos estaticos), `web/` (React Three Fiber),
+Layout: `shared/` (types, courses and physics, used by server and client), `src/`
+(worker: rooms and turns, HTTP routes, static files), `web/` (React Three Fiber client),
 `test/`.
 
-Novas pistas: adicione um `Hole` em `shared/courses.ts` (contorno, tee, buraco, blocos,
-bumpers e zonas) e rode `pnpm test`, que confere se tee e buraco estao em lugar valido.
+New holes: add a `Hole` to `shared/courses.ts` (outline, tee, cup, blocks, bumpers and
+zones) and run `pnpm test`, which checks that tees and cups sit in valid spots.

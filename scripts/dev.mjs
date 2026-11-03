@@ -1,5 +1,5 @@
-// Loop de desenvolvimento: compila o cliente, depois observa o cliente (vite build --watch)
-// e reinicia o worker a cada mudanca em src/ ou shared/ (tsx watch).
+// Dev loop: build the client once, then watch it (vite build --watch)
+// and restart the worker on every change in src/ or shared/ (tsx watch).
 import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
 
@@ -22,22 +22,22 @@ function runOnce(label, args) {
     const child = spawnNode(args)
     child.once('error', reject)
     child.once('exit', (code, signal) =>
-      code === 0 ? resolveRun() : reject(new Error(`${label} falhou (${signal ?? `exit ${code}`})`)),
+      code === 0 ? resolveRun() : reject(new Error(`${label} failed (${signal ?? `exit ${code}`})`)),
     )
   })
 }
 
 function watch(label, args) {
-  console.log(`[dev] observando ${label}`)
+  console.log(`[dev] watching ${label}`)
   const child = spawnNode(args)
   child.once('error', (error) => {
     if (shuttingDown) return
-    console.error(`[dev] ${label} nao iniciou:`, error)
+    console.error(`[dev] ${label} failed to start:`, error)
     shutdown(1)
   })
   child.once('exit', (code, signal) => {
     if (shuttingDown) return
-    console.error(`[dev] ${label} parou (${signal ?? `exit ${code}`})`)
+    console.error(`[dev] ${label} stopped (${signal ?? `exit ${code}`})`)
     shutdown(code || 1)
   })
 }
@@ -56,9 +56,9 @@ process.once('SIGINT', () => shutdown(0))
 process.once('SIGTERM', () => shutdown(0))
 
 try {
-  await runOnce('compilando o cliente web', [vite, 'build', '--logLevel', 'warn'])
-  watch('cliente web', [vite, 'build', '--watch', '--logLevel', 'warn'])
-  watch('worker mini-golf', [tsx, 'watch', '--clear-screen=false', 'src/index.ts'])
+  await runOnce('building the web client', [vite, 'build', '--logLevel', 'warn'])
+  watch('web client', [vite, 'build', '--watch', '--logLevel', 'warn'])
+  watch('mini-golf worker', [tsx, 'watch', '--clear-screen=false', 'src/index.ts'])
 } catch (error) {
   console.error('[dev]', error instanceof Error ? error.message : error)
   shutdown(1)

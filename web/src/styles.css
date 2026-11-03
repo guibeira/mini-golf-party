@@ -473,3 +473,28 @@ button.link {
     display: none;
   }
 }
+
+.pill.turn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 2px solid;
+  font-weight: 700;
+}
+
+.pill.turn.mine {
+  background: #fff3c4;
+}
+
+.pill.turn b {
+  font-variant-numeric: tabular-nums;
+}
+
+.pill.turn b.warn {
+  color: var(--bad);
+}
+
+.player-row.turn {
+  background: rgba(255, 210, 63, 0.3);
+  border-radius: 6px;
+}

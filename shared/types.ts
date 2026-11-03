@@ -1,4 +1,4 @@
-/** Ponto no plano do gramado (x para a direita, z para a frente). */
+/** Point on the green's plane (x to the right, z forward). */
 export interface Vec2 {
   x: number
   z: number
@@ -13,9 +13,9 @@ export type ZoneKind = 'sand' | 'water' | 'boost' | 'slope'
 
 export interface Zone extends Rect {
   kind: ZoneKind
-  /** Direcao (normalizada) da aceleracao em zonas boost/slope. */
+  /** Normalized acceleration direction for boost/slope zones. */
   dir?: Vec2
-  /** Aceleracao em unidades/s^2 para boost/slope. */
+  /** Acceleration in units/s^2 for boost/slope zones. */
   strength?: number
 }
 
@@ -29,11 +29,11 @@ export interface Hole {
   id: string
   name: string
   par: number
-  /** Contorno do gramado: poligono fechado; cada aresta e uma parede. */
+  /** Outline of the green: a closed polygon; every edge is a wall. */
   outline: Vec2[]
   tee: Vec2
   cup: Vec2
-  /** Blocos retangulares solidos dentro do gramado. */
+  /** Solid rectangular blocks inside the green. */
   blocks: Rect[]
   bumpers: Bumper[]
   zones: Zone[]
@@ -52,13 +52,13 @@ export interface Shot {
   playerId: string
   hole: number
   from: Vec2
-  /** Onde a bola fica depois da tacada (volta para `from` se cair na agua). */
+  /** Where the ball rests after the shot (back to `from` after water). */
   to: Vec2
-  /** Posicoes x,z intercaladas, uma a cada `frameDt` segundos. */
+  /** Interleaved x,z positions, one every `frameDt` seconds. */
   frames: number[]
   frameDt: number
   result: ShotResult
-  /** Tacadas do jogador neste buraco depois desta tacada. */
+  /** The player's strokes on this hole after this shot. */
   strokes: number
   at: number
 }
@@ -70,7 +70,7 @@ export interface PublicPlayer {
   name: string
   color: string
   ball: Vec2
-  /** Placar por buraco: tacadas atuais ou pontuacao final do buraco. */
+  /** Score per hole: current strokes, or the hole's final score. */
   strokes: number[]
   holed: boolean
   done: boolean
@@ -86,9 +86,13 @@ export interface PublicRoom {
   holeIndex: number
   holeCount: number
   hostId: string
-  /** Fim do tempo do buraco atual (ms, relogio do servidor). */
-  holeEndsAt: number | null
-  /** Quando o intervalo termina (ms, relogio do servidor). */
+  /** Whose turn it is (null between holes, or while nobody can play). */
+  turnPlayerId: string | null
+  /** When the current turn times out (ms, server clock). */
+  turnEndsAt: number | null
+  /** True once the turn player has shot; the turn passes when the ball settles. */
+  turnShot: boolean
+  /** When the intermission ends (ms, server clock). */
   nextAt: number | null
   serverNow: number
   players: PublicPlayer[]

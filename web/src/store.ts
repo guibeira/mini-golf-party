@@ -49,7 +49,7 @@ export function useGame(): GameState {
   return useSyncExternalStore(subscribe, () => state)
 }
 
-/** Re-renderiza a cada `ms` (relogios e fim de animacoes). */
+/** Re-renders every `ms` (timers and the end of animations). */
 export function useNow(ms: number): number {
   const [now, setNow] = useState(() => performance.now())
   useEffect(() => {
@@ -63,7 +63,7 @@ export const serverNow = () => Date.now() + state.clockOffset
 export const savedName = () => localStorage.getItem(NAME_KEY) ?? ''
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-// ------------------------------------------------------------ animacao
+// ----------------------------------------------------------- animation
 
 const shotStarts = new Map<string, number>()
 
@@ -89,7 +89,7 @@ export interface BallPose {
   moving: boolean
 }
 
-/** Posicao da bola agora: interpola a trajetoria enquanto a tacada anima. */
+/** Where the ball is now: interpolates the trajectory while a shot animates. */
 export function ballPose(player: PublicPlayer, now = performance.now()): BallPose {
   const shot = player.lastShot
   if (shot) {
@@ -110,7 +110,7 @@ export function ballPose(player: PublicPlayer, now = performance.now()): BallPos
   return { x: player.ball.x, z: player.ball.z, sunk: player.holed, moving: false }
 }
 
-// --------------------------------------------------------------- avisos
+// --------------------------------------------------------------- toasts
 
 let toastId = 0
 function toast(text: string, tone: Toast['tone'] = 'info', delayMs = 0) {
@@ -124,22 +124,22 @@ function toast(text: string, tone: Toast['tone'] = 'info', delayMs = 0) {
 const announced = new Set<string>()
 
 function announceShot(player: PublicPlayer, shot: Shot) {
-  // A resposta da tacada e o long-poll podem trazer a mesma tacada: avisa uma vez so.
+  // The shot response and the long-poll can both carry the same shot: announce it once.
   if (announced.has(shot.id)) return
   announced.add(shot.id)
   const mine = player.id === state.session?.playerId
   const delay = shotDurationMs(shot.frames, shot.frameDt)
   if (shot.result === 'holed') {
-    if (shot.strokes === 1) toast(mine ? 'HOLE IN ONE! 🎉' : `${player.name} fez hole in one! 🎉`, 'good', delay)
-    else toast(mine ? `Na cacapa em ${shot.strokes}! ⛳` : `${player.name} acertou em ${shot.strokes} ⛳`, 'good', delay)
+    if (shot.strokes === 1) toast(mine ? 'HOLE IN ONE! 🎉' : `${player.name} got a hole in one! 🎉`, 'good', delay)
+    else toast(mine ? `Sunk it in ${shot.strokes}! ⛳` : `${player.name} sank it in ${shot.strokes} ⛳`, 'good', delay)
   } else if (mine && shot.result === 'water') {
-    toast('Splash! Bola de volta e +1 tacada 💦', 'bad', delay)
+    toast('Splash! Ball back and +1 stroke 💦', 'bad', delay)
   } else if (mine && player.done && !player.holed) {
-    toast(`Limite de ${MAX_STROKES} tacadas: 7 pontos neste buraco`, 'bad', delay)
+    toast(`${MAX_STROKES}-stroke limit: 7 points on this hole`, 'bad', delay)
   }
 }
 
-// ----------------------------------------------------------------- sala
+// ----------------------------------------------------------------- room
 
 function applyRoom(room: PublicRoom, quiet = false) {
   const prev = state.room
@@ -147,9 +147,13 @@ function applyRoom(room: PublicRoom, quiet = false) {
   for (const p of room.players) {
     const shot = p.lastShot
     if (!shot || shotStarts.has(shot.id)) continue
-    // Tacadas que ja tinham acontecido antes de entrarmos nao animam.
+    // Shots that happened before we joined don't animate.
     shotStarts.set(shot.id, quiet ? -1e12 : performance.now())
     if (!quiet) announceShot(p, shot)
+  }
+  const me = state.session?.playerId
+  if (!quiet && me && room.phase === 'playing' && room.turnPlayerId === me && prev?.turnPlayerId !== me) {
+    toast('Your turn! ⛳', 'info')
   }
   setState({ room, clockOffset: room.serverNow - Date.now() })
 }
@@ -169,8 +173,8 @@ function startPolling() {
       const room = state.room
       if (!session || !room) return
       try {
-        // Depois de uma falha, busca a sala na hora (sem esperar mudanca) para sair do
-        // estado "reconectando" assim que o servidor voltar.
+        // After a failure, fetch the room right away (no waiting for a change) so the
+        // "reconnecting" state clears as soon as the server is back.
         const res =
           failures > 0
             ? await api.room(session.code)
@@ -181,10 +185,10 @@ function startPolling() {
         applyRoom(res.room)
       } catch (error) {
         if (ctrl.signal.aborted) return
-        // So sai da sala quando o jogo diz que ela acabou; um 404 do proprio worker http
-        // (rotas sendo re-registradas durante um reinicio) e passageiro.
+        // Only leave when the game says the room is gone; a 404 from the http worker itself
+        // (routes being re-registered during a restart) is transient.
         if (isGone(error)) {
-          leaveRoom('Essa sala nao existe mais.')
+          leaveRoom('This room no longer exists.')
           return
         }
         failures += 1
@@ -200,7 +204,7 @@ function enter(joined: Joined, name: string) {
   if (name) localStorage.setItem(NAME_KEY, name)
   setState({ session: joined.session, error: null })
   applyRoom(joined.room, true)
-  history.replaceState(null, '', `${location.pathname}?sala=${joined.session.code}`)
+  history.replaceState(null, '', `${location.pathname}?room=${joined.session.code}`)
   startPolling()
 }
 
@@ -213,7 +217,7 @@ export function leaveRoom(reason?: string) {
 }
 
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Algo deu errado.'
+  return error instanceof Error ? error.message : 'Something went wrong.'
 }
 
 async function run(task: () => Promise<void>) {
@@ -252,7 +256,7 @@ export const actions = {
   dismissError: () => setState({ error: null }),
 }
 
-/** Volta para a sala salva neste navegador (recarregar a pagina nao tira ninguem do jogo). */
+/** Rejoins the room saved in this browser (reloading the page never kicks anyone out). */
 export async function resumeSaved() {
   const raw = localStorage.getItem(SESSION_KEY)
   if (!raw) return
@@ -260,6 +264,12 @@ export async function resumeSaved() {
   try {
     saved = JSON.parse(raw) as Session
   } catch {
+    localStorage.removeItem(SESSION_KEY)
+    return
+  }
+  // An invite link to another room wins over the room saved in this browser.
+  const invited = new URLSearchParams(location.search).get('room')?.toUpperCase()
+  if (invited && invited !== saved.code) {
     localStorage.removeItem(SESSION_KEY)
     return
   }

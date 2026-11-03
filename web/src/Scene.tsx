@@ -22,13 +22,16 @@ export interface SceneProps {
   hole: Hole
   players: PublicPlayer[]
   meId: string | null
+  /** Whose ball the camera follows (the player on turn). */
+  followId: string | null
   canShoot: boolean
   attract: boolean
   onShoot: (angle: number, power: number) => void
 }
 
-export const GameScene = memo(function GameScene({ hole, players, meId, canShoot, attract, onShoot }: SceneProps) {
+export const GameScene = memo(function GameScene({ hole, players, meId, followId, canShoot, attract, onShoot }: SceneProps) {
   const me = players.find((p) => p.id === meId) ?? null
+  const followed = players.find((p) => p.id === followId) ?? me
   return (
     <Canvas shadows dpr={[1, 2]} camera={{ fov: 50, near: 0.1, far: 200, position: [0, 6, -5] }}>
       <color attach="background" args={['#9bd8ff']} />
@@ -64,12 +67,12 @@ export const GameScene = memo(function GameScene({ hole, players, meId, canShoot
         autoRotate={attract}
         autoRotateSpeed={0.7}
       />
-      <CameraRig hole={hole} follow={me} attract={attract} />
+      <CameraRig hole={hole} follow={followed} attract={attract} />
     </Canvas>
   )
 })
 
-// ---------------------------------------------------------------- pista
+// ---------------------------------------------------------------- course
 
 function HoleView({ hole }: { hole: Hole }) {
   const floorArgs = useMemo(() => {
@@ -262,7 +265,7 @@ function Trees({ hole }: { hole: Hole }) {
   )
 }
 
-// --------------------------------------------------------------- bolas
+// --------------------------------------------------------------- balls
 
 function Ball({ player, isMe, ready }: { player: PublicPlayer; isMe: boolean; ready: boolean }) {
   const group = useRef<THREE.Group>(null)
@@ -297,7 +300,7 @@ function Ball({ player, isMe, ready }: { player: PublicPlayer; isMe: boolean; re
   )
 }
 
-// ------------------------------------------------------------------ mira
+// ------------------------------------------------------------------- aim
 
 function AimController({ ball, onShoot }: { ball: Vec2; onShoot: (angle: number, power: number) => void }) {
   const camera = useThree((s) => s.camera)
@@ -352,7 +355,7 @@ function AimController({ ball, onShoot }: { ball: Vec2; onShoot: (angle: number,
       if (ev.pointerType === 'mouse' && ev.button !== 0) return
       const p = ground(ev)
       if (!p || Math.hypot(p.x - ball.x, p.z - ball.z) > GRAB_RADIUS) return
-      // Pegou a bolinha: a camera nao gira, o arrasto vira mira.
+      // Grabbed the ball: the camera stays put and the drag becomes the aim.
       ev.stopPropagation()
       ev.preventDefault()
       aiming = true
@@ -416,11 +419,12 @@ function CameraRig({ hole, follow, attract }: { hole: Hole; follow: PublicPlayer
     }
   }, [hole, attract, camera, controls, focus])
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     if (!controls || !follow || attract) return
     const pose = ballPose(follow)
     focus.set(pose.x, 0, pose.z)
-    delta.copy(focus).sub(controls.target).multiplyScalar(0.07)
+    // Frame-rate independent easing: slow devices catch up as fast as fast ones.
+    delta.copy(focus).sub(controls.target).multiplyScalar(1 - Math.exp(-Math.min(dt, 1) * 5))
     if (delta.lengthSq() < 1e-8) return
     controls.target.add(delta)
     camera.position.add(delta)

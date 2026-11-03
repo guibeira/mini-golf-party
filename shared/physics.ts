@@ -2,12 +2,12 @@ import type { Hole, Rect, ShotResult, Vec2 } from './types.js'
 
 export const BALL_RADIUS = 0.12
 export const CUP_RADIUS = 0.2
-/** Meia espessura visual das paredes; a colisao considera esse recuo. */
+/** Half of the walls' visual thickness; collisions account for it. */
 export const WALL_HALF = 0.06
 export const WALL_HEIGHT = 0.25
 export const MAX_SPEED = 10
 export const MAX_STROKES = 6
-/** Pontuacao de quem nao acerta o buraco (limite de tacadas ou tempo). */
+/** Score for not holing out (stroke limit or time up). */
 export const PENALTY_SCORE = 7
 
 const DT = 1 / 120
@@ -76,9 +76,9 @@ export function clampPower(power: number): number {
 export interface ShotInput {
   hole: Hole
   from: Vec2
-  /** Angulo em radianos: a bola sai na direcao (cos, sin) no plano x,z. */
+  /** Angle in radians: the ball leaves along (cos, sin) on the x,z plane. */
   angle: number
-  /** Forca de 0 a 1. */
+  /** Power from 0 to 1. */
   power: number
 }
 
@@ -92,8 +92,8 @@ export interface ShotOutput {
 const round = (v: number) => Math.round(v * 1000) / 1000
 
 /**
- * Simula uma tacada inteira ate a bola parar, cair no buraco ou na agua.
- * A fisica e 2D no plano do gramado; a altura e so visual.
+ * Simulates a whole shot until the ball stops, drops in the cup or hits water.
+ * Physics is 2D on the green's plane; height is purely visual.
  */
 export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutput {
   const segments = holeSegments(hole)
@@ -123,7 +123,7 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
       }
     }
 
-    // Leve atracao para o buraco quando a bola passa devagar por perto.
+    // Gentle pull toward the cup when the ball rolls slowly nearby.
     const toCupX = hole.cup.x - x
     const toCupZ = hole.cup.z - z
     const cupDist = Math.hypot(toCupX, toCupZ)
@@ -203,7 +203,7 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
     if (step % SAMPLE_EVERY === 0) frames.push(round(x), round(z))
 
     if (speed < STOP_SPEED && !pushed) break
-    // Bola presa (por exemplo contra a parede numa ladeira): para quando quase nao anda.
+    // Stuck ball (e.g. pinned against a wall on a slope): stop once it barely moves.
     if (step % 60 === 0) {
       if (Math.hypot(x - anchorX, z - anchorZ) < 0.03) break
       anchorX = x
@@ -217,7 +217,7 @@ export function simulateShot({ hole, from, angle, power }: ShotInput): ShotOutpu
   return { frames, frameDt: FRAME_DT, end, result }
 }
 
-/** Duracao da animacao de uma tacada, em milissegundos. */
+/** Duration of a shot's animation, in milliseconds. */
 export function shotDurationMs(frames: number[], frameDt: number): number {
   return Math.max(0, frames.length / 2 - 1) * frameDt * 1000
 }

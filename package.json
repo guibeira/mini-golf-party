@@ -2,7 +2,7 @@
   "name": "mini-golf-party",
   "version": "0.1.0",
   "private": true,
-  "description": "Mini Golf Party: mini golf 3D multiplayer no navegador, servido por um worker iii.",
+  "description": "Mini Golf Party: multiplayer 3D mini golf in the browser, served by an iii worker.",
   "type": "module",
   "engines": {
     "node": ">=22"
