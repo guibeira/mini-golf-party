@@ -8,6 +8,8 @@ export const MAX_PLAYERS = 8
 export const TURN_TIME_MS = 30_000
 export const INTERMISSION_MS = 6_000
 export const DISCONNECT_MS = 35_000
+/** How long a disconnected player keeps their seat before being removed from the room. */
+export const AWAY_REMOVE_MS = 30_000
 export const ROOM_IDLE_MS = 2 * 60 * 60 * 1000
 /** Pause after a ball stops before the turn passes, so everyone sees where it landed. */
 export const SETTLE_MS = 900
@@ -18,6 +20,8 @@ export interface Player extends PublicPlayer {
   token: string
   lastSeen: number
   busyUntil: number
+  /** When the player was first seen disconnected (absent in rooms saved by older versions). */
+  awaySince?: number | null
 }
 
 export interface Room {
@@ -97,7 +101,7 @@ export class RoomStore {
       turnShot: room.turnShot,
       nextAt: room.nextAt,
       serverNow: this.now(),
-      players: room.players.map(({ token: _t, lastSeen: _l, busyUntil: _b, ...pub }) => pub),
+      players: room.players.map(({ token: _t, lastSeen: _l, busyUntil: _b, awaySince: _a, ...pub }) => pub),
     }
   }
 
@@ -141,6 +145,7 @@ export class RoomStore {
     if (existing) {
       existing.lastSeen = this.now()
       existing.connected = true
+      existing.awaySince = null
       this.commit(room)
       return { room: this.view(room), session: { code: room.code, playerId: existing.id, token: existing.token } }
     }
@@ -218,13 +223,33 @@ export class RoomStore {
     return { room: this.view(room), shot }
   }
 
-  /**
-   * Leaves the room for good: the turn and the host role pass on, and a room left empty
-   * goes back to the lobby so the invite link still works.
-   */
+  /** Leaves the room for good; the turn and the host role pass on. */
   async leave(rawCode: unknown, playerId: unknown, token: unknown): Promise<{ left: boolean }> {
     const room = await this.get(rawCode)
     const player = this.auth(room, playerId, token)
+    this.removePlayer(room, player)
+    this.commit(room)
+    return { left: true }
+  }
+
+  /**
+   * The player's page was closed: mark them away right now so their turn passes. They keep
+   * the seat for AWAY_REMOVE_MS, which is what lets a page reload rejoin as the same player.
+   */
+  async away(rawCode: unknown, playerId: unknown, token: unknown): Promise<{ away: boolean }> {
+    const room = await this.get(rawCode)
+    const player = room.players.find((p) => p.id === playerId && p.token === token)
+    if (!player) return { away: false }
+    const now = this.now()
+    player.lastSeen = now - DISCONNECT_MS
+    player.connected = false
+    player.awaySince = now
+    this.commit(room)
+    return { away: true }
+  }
+
+  /** Removes a player: the turn and the host role pass on, and an empty room goes back to the lobby. */
+  private removePlayer(room: Room, player: Player): void {
     const wasTurn = room.phase === 'playing' && room.turnPlayerId === player.id
     player.connected = false
     player.done = true
@@ -236,12 +261,10 @@ export class RoomStore {
       room.nextAt = null
       room.hostId = ''
       this.beginTurn(room, null)
-    } else {
-      if (room.hostId === player.id) room.hostId = (room.players.find((p) => p.connected) ?? room.players[0]).id
-      if (wasTurn) this.beginTurn(room, next?.id ?? null)
+      return
     }
-    this.commit(room)
-    return { left: true }
+    if (room.hostId === player.id) room.hostId = (room.players.find((p) => p.connected) ?? room.players[0]).id
+    if (wasTurn) this.beginTurn(room, next?.id ?? null)
   }
 
   /** Long-poll: resolves when the room's version changes or the wait times out. */
@@ -250,6 +273,7 @@ export class RoomStore {
     const player = room.players.find((p) => p.id === playerId)
     if (player) {
       player.lastSeen = this.now()
+      player.awaySince = null
       if (!player.connected) {
         player.connected = true
         this.commit(room)
@@ -277,10 +301,20 @@ export class RoomStore {
     const now = this.now()
     for (const room of this.rooms.values()) {
       let changed = false
-      for (const p of room.players) {
+      for (const p of [...room.players]) {
         const connected = now - p.lastSeen < DISCONNECT_MS
         if (p.connected !== connected) {
           p.connected = connected
+          changed = true
+        }
+        if (connected) {
+          p.awaySince = null
+          continue
+        }
+        p.awaySince ??= now
+        // Gone for good (tab closed, network lost): free the seat.
+        if (now - p.awaySince >= AWAY_REMOVE_MS) {
+          this.removePlayer(room, p)
           changed = true
         }
       }
@@ -414,6 +448,7 @@ export class RoomStore {
     // Any authenticated call proves the player is still here.
     player.lastSeen = this.now()
     player.connected = true
+    player.awaySince = null
     return player
   }
 
@@ -439,6 +474,7 @@ export class RoomStore {
       lastShot: null,
       lastSeen: this.now(),
       busyUntil: 0,
+      awaySince: null,
     }
     room.players.push(player)
     if (!room.players.some((p) => p.id === room.hostId)) room.hostId = player.id

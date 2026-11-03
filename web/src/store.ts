@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { MAX_STROKES, shotDurationMs } from '../../shared/physics.js'
 import type { PublicPlayer, PublicRoom, Session, Shot } from '../../shared/types.js'
-import { ApiError, type Joined, api } from './api'
+import { ApiError, type Joined, api, sendAwayBeacon } from './api'
 import { playShot, sfx } from './sound'
 
 const SESSION_KEY = 'mini-golf-party:session'
@@ -59,6 +59,11 @@ export function useNow(ms: number): number {
   }, [ms])
   return now
 }
+
+// Closing the page frees the turn at once; a reload rejoins before the seat is given up.
+window.addEventListener('pagehide', () => {
+  if (state.session) sendAwayBeacon(state.session)
+})
 
 export const serverNow = () => Date.now() + state.clockOffset
 export const savedName = () => localStorage.getItem(NAME_KEY) ?? ''

@@ -45,7 +45,14 @@ export interface Joined {
   session: Session
 }
 
+/** Fire-and-forget notice sent while the page unloads (survives the tab closing). */
+export function sendAwayBeacon(s: Session): void {
+  const body = new Blob([JSON.stringify({ playerId: s.playerId, token: s.token })], { type: 'text/plain' })
+  navigator.sendBeacon?.(`${BASE}/rooms/${encodeURIComponent(s.code)}/away`, body)
+}
+
 export const api = {
+  info: () => request<{ addresses: string[] }>('GET', '/info'),
   leaderboard: () => request<{ entries: LeaderboardEntry[] }>('GET', '/leaderboard'),
   create: (name: string) => request<Joined>('POST', '/rooms', { name }),
   join: (code: string, name: string, resume?: { playerId: string; token: string }) =>

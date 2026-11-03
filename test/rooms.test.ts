@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { PENALTY_SCORE } from '../shared/physics.js'
-import { INTERMISSION_MS, RoomStore, TURN_TIME_MS } from '../src/rooms.js'
+import { AWAY_REMOVE_MS, INTERMISSION_MS, RoomStore, TURN_TIME_MS } from '../src/rooms.js'
 
 function setup() {
   let now = 1_000_000
@@ -132,6 +132,34 @@ test('leaving passes the turn and the host role on, and an empty room resets to 
   assert.equal(room.phase, 'lobby')
   const d = await store.join(code, 'Duda')
   assert.equal(d.room.hostId, d.session.playerId, 'the first one back becomes host')
+})
+
+test('a closed tab is skipped at once and loses its seat after the grace period', async () => {
+  const { store, advance } = setup()
+  const a = await store.create('Ana')
+  const code = a.session.code
+  const b = await store.join(code, 'Bia')
+  await store.start(code, a.session.playerId, a.session.token)
+  await store.away(code, a.session.playerId, a.session.token)
+  store.tick()
+  let { room } = await store.poll(code, undefined, b.session.playerId)
+  assert.equal(room.players[0].connected, false)
+  assert.equal(room.turnPlayerId, b.session.playerId, 'the away player is skipped right away')
+
+  // A reload comes back within the grace period and keeps the seat.
+  await store.poll(code, undefined, a.session.playerId)
+  ;({ room } = await store.poll(code, undefined, b.session.playerId))
+  assert.equal(room.players.length, 2)
+  assert.equal(room.players[0].connected, true)
+
+  await store.away(code, a.session.playerId, a.session.token)
+  store.tick()
+  advance(AWAY_REMOVE_MS + 1)
+  await store.poll(code, undefined, b.session.playerId)
+  store.tick()
+  ;({ room } = await store.poll(code, undefined, b.session.playerId))
+  assert.equal(room.players.length, 1, 'the seat is freed')
+  assert.equal(room.hostId, b.session.playerId)
 })
 
 test('unknown room answers 404', async () => {

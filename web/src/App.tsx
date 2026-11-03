@@ -1,10 +1,11 @@
-import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { COURSE, COURSE_PAR } from '../../shared/courses.js'
 import { MAX_STROKES } from '../../shared/physics.js'
 import type { LeaderboardEntry, PublicPlayer, PublicRoom } from '../../shared/types.js'
 import { api } from './api'
+import { copyText } from './clipboard'
 import { GameScene } from './Scene'
-import { setMuted, useMuted } from './sound'
+import { setMusic, setMuted, useMuted } from './sound'
 import { type GameState, actions, isAnimating, savedName, serverNow, useGame, useNow } from './store'
 
 const total = (p: PublicPlayer) => p.strokes.reduce((sum, s) => sum + (s ?? 0), 0)
@@ -28,6 +29,9 @@ export function App() {
     void actions.leave()
   }, [])
   const midGame = !!room && (room.phase === 'playing' || room.phase === 'intermission')
+  // Menu music while choosing or creating a room and waiting in the lobby.
+  const menuMusic = !room || room.phase === 'lobby'
+  useEffect(() => setMusic(menuMusic), [menuMusic])
 
   return (
     <div className="app">
@@ -132,27 +136,87 @@ function Home({ busy }: { busy: boolean }) {
   )
 }
 
+const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/
+
 function Lobby({ room, meId, busy }: { room: PublicRoom; meId: string | null; busy: boolean }) {
-  const [copied, setCopied] = useState(false)
-  const link = `${location.origin}${location.pathname}?room=${room.code}`
+  // On localhost the page address is useless to friends: offer this machine's network addresses.
+  const loopback = LOOPBACK.test(location.hostname)
+  const [hosts, setHosts] = useState<string[]>([])
+  const [hostIndex, setHostIndex] = useState(0)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const linkInput = useRef<HTMLInputElement>(null)
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => {
+    if (!loopback) return
+    api.info().then(
+      (r) => setHosts(r.addresses),
+      () => setHosts([]),
+    )
+  }, [loopback])
+  useEffect(() => () => clearTimeout(resetTimer.current), [])
+  const shareHost = loopback && hosts.length > 0 ? hosts[Math.min(hostIndex, hosts.length - 1)] : null
+  const origin = shareHost ? `${location.protocol}//${shareHost}${location.port ? `:${location.port}` : ''}` : location.origin
+  const link = `${origin}${location.pathname}?room=${room.code}`
   const host = room.players.find((p) => p.id === room.hostId)
+  const canShare = typeof navigator.share === 'function'
+
   const copy = async () => {
+    const ok = await copyText(link)
+    setCopyState(ok ? 'copied' : 'failed')
+    if (!ok) {
+      linkInput.current?.focus()
+      linkInput.current?.select()
+    }
+    clearTimeout(resetTimer.current)
+    resetTimer.current = setTimeout(() => setCopyState('idle'), ok ? 1800 : 5000)
+  }
+  const share = async () => {
     try {
-      await navigator.clipboard.writeText(link)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      await navigator.share({ title: 'Mini Golf Party', text: `Join my mini golf room ${room.code}!`, url: link })
     } catch {
-      setCopied(false)
+      // Share sheet dismissed.
     }
   }
+
   return (
     <section className="card lobby">
       <p className="eyebrow">Room</p>
       <p className="room-code">{room.code}</p>
       <div className="share">
-        <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Room link" />
-        <button onClick={copy}>{copied ? 'Copied!' : 'Copy link'}</button>
+        <input
+          ref={linkInput}
+          readOnly
+          value={link}
+          onFocus={(e) => e.currentTarget.select()}
+          aria-label="Room link"
+        />
+        <button onClick={() => void copy()}>{copyState === 'copied' ? 'Copied!' : 'Copy link'}</button>
+        {canShare && <button onClick={() => void share()}>Share</button>}
       </div>
+      {copyState === 'failed' && (
+        <p className="note bad" role="status">
+          Could not copy automatically. The link is selected: press Ctrl+C (Cmd+C on a Mac).
+        </p>
+      )}
+      {loopback && hosts.length > 1 && (
+        <label className="field inline">
+          <span>Network</span>
+          <select value={hostIndex} onChange={(e) => setHostIndex(Number(e.target.value))}>
+            {hosts.map((h, i) => (
+              <option key={h} value={i}>
+                {h}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {loopback && (
+        <p className="note">
+          {hosts.length > 0
+            ? 'Friends on your network (or VPN) can open this link.'
+            : 'This link only works on this computer. Open the game through your network address to invite friends.'}
+        </p>
+      )}
       <h2>Players ({room.players.length}/8)</h2>
       <ul className="chips">
         {room.players.map((p) => (
@@ -161,6 +225,7 @@ function Lobby({ room, meId, busy }: { room: PublicRoom; meId: string | null; bu
             {p.name}
             {p.id === room.hostId ? ' \ud83d\udc51' : ''}
             {p.id === meId ? ' (you)' : ''}
+            {p.connected ? '' : ' \ud83d\udca4'}
           </li>
         ))}
       </ul>
@@ -219,6 +284,7 @@ function Hud({
         )}
         <span className="pill muted">Room {room.code}</span>
       </header>
+      <div className="hud-bottom">
       <aside className="players" aria-label="Hole scoreboard">
         {room.players.map((p) => (
           <div
@@ -236,6 +302,7 @@ function Hud({
         ))}
       </aside>
       {hint && <footer className="hint">{hint}</footer>}
+      </div>
     </>
   )
 }

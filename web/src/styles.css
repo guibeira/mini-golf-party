@@ -458,21 +458,6 @@ button.link {
   }
 }
 
-@media (max-width: 560px) {
-  .players {
-    top: auto;
-    bottom: 64px;
-    right: 8px;
-    min-width: 140px;
-    font-size: 13px;
-  }
-  .room-code {
-    font-size: 44px;
-  }
-  .hud-top .pill.muted {
-    display: none;
-  }
-}
 
 .pill.turn {
   display: flex;
@@ -540,11 +525,151 @@ button.danger {
   color: #fff;
 }
 
+
+.note {
+  margin: -4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.note.bad {
+  color: var(--bad);
+}
+
+.field.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+select {
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+/* The 3D scene and its name-tag layer; z-index keeps tags under the HUD and dialogs. */
+.scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.scene-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ responsive */
+
+.players {
+  align-content: start;
+}
+
+/* On wide screens the scoreboard and the hint keep their own positions. */
+.hud-bottom {
+  display: contents;
+}
+
 @media (max-width: 900px) {
   .hud-top {
-    top: calc(max(12px, env(safe-area-inset-top)) + 50px);
+    top: calc(max(12px, env(safe-area-inset-top)) + 52px);
   }
   .players {
     top: 112px;
+  }
+}
+
+@media (max-width: 560px) {
+  .card {
+    padding: 16px;
+  }
+  .hud-top {
+    gap: 6px;
+  }
+  .pill {
+    font-size: 13px;
+    padding: 6px 11px;
+  }
+  .hud-top .pill.muted {
+    display: none;
+  }
+  /* Scoreboard chips stacked above the hint, so they never overlap. */
+  .hud-bottom {
+    display: flex;
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .hud-bottom .players,
+  .hud-bottom .hint {
+    position: static;
+    transform: none;
+  }
+  .players {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    padding: 0;
+    background: none;
+    box-shadow: none;
+  }
+  .player-row {
+    display: inline-flex;
+    gap: 5px;
+    background: var(--card);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 13px;
+    box-shadow: 0 2px 8px rgba(16, 52, 84, 0.18);
+  }
+  .player-row.turn {
+    background: #fff3c4;
+    border-radius: 999px;
+  }
+  .player-row .status:empty {
+    display: none;
+  }
+  .hint {
+    font-size: 13px;
+    padding: 8px 14px;
+  }
+  .toasts {
+    top: 32%;
+    width: calc(100% - 24px);
+  }
+  .toast {
+    font-size: 14px;
+    text-align: center;
+  }
+  .room-code {
+    font-size: 44px;
+  }
+  .share {
+    flex-wrap: wrap;
+  }
+  .share input {
+    flex: 1 1 100%;
+  }
+  .share button {
+    flex: 1;
+  }
+  .scores th,
+  .scores td {
+    padding: 5px 4px;
+    font-size: 13px;
   }
 }

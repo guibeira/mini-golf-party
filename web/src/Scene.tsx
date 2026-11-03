@@ -1,6 +1,6 @@
 import { Html, OrbitControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { type RefObject, memo, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { BALL_RADIUS, CUP_RADIUS, WALL_HALF, WALL_HEIGHT, outlineSegments } from '../../shared/physics.js'
 import type { Hole, PublicPlayer, Vec2, Zone } from '../../shared/types.js'
@@ -10,6 +10,8 @@ const MAX_DRAG = 2.6
 const GRAB_RADIUS = 0.75
 const MIN_POWER = 0.04
 const FLOOR_DEPTH = 0.3
+/** How far ahead of the ball (toward the cup) the camera looks. */
+const CAMERA_LEAD = 1.5
 
 interface Aim {
   angle: number
@@ -17,6 +19,10 @@ interface Aim {
 }
 
 type Controls = { target: THREE.Vector3; update: () => void; enabled: boolean }
+type Labels = RefObject<HTMLDivElement | null>
+
+/** Touch screens (phones, tablets) get a lighter render: lower pixel ratio, smaller shadows. */
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
 export interface SceneProps {
   hole: Hole
@@ -32,8 +38,12 @@ export interface SceneProps {
 export const GameScene = memo(function GameScene({ hole, players, meId, followId, canShoot, attract, onShoot }: SceneProps) {
   const me = players.find((p) => p.id === meId) ?? null
   const followed = players.find((p) => p.id === followId) ?? me
+  // Name tags live in their own layer over the canvas: a stable container from the first
+  // render, so a tag mounted before the canvas wires its events still shows its text.
+  const labels = useRef<HTMLDivElement>(null)
   return (
-    <Canvas shadows dpr={[1, 2]} camera={{ fov: 50, near: 0.1, far: 200, position: [0, 6, -5] }}>
+    <div className="scene">
+    <Canvas shadows dpr={COARSE ? [1, 1.5] : [1, 2]} camera={{ fov: 50, near: 0.1, far: 200, position: [0, 6, -5] }}>
       <color attach="background" args={['#9bd8ff']} />
       <fog attach="fog" args={['#9bd8ff', 28, 70]} />
       <hemisphereLight args={['#ffffff', '#4a8f3c', 0.9]} />
@@ -41,7 +51,7 @@ export const GameScene = memo(function GameScene({ hole, players, meId, followId
         position={[7, 14, 3]}
         intensity={1.7}
         castShadow
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={COARSE ? [1024, 1024] : [2048, 2048]}
         shadow-camera-left={-18}
         shadow-camera-right={18}
         shadow-camera-top={18}
@@ -54,9 +64,9 @@ export const GameScene = memo(function GameScene({ hole, players, meId, followId
       <HoleView hole={hole} />
       <Trees hole={hole} />
       {players.map((p) => (
-        <Ball key={p.id} player={p} isMe={p.id === meId} ready={p.id === meId && canShoot} />
+        <Ball key={p.id} player={p} isMe={p.id === meId} ready={p.id === meId && canShoot} labels={labels} />
       ))}
-      {me && canShoot && <AimController ball={me.ball} onShoot={onShoot} />}
+      {me && canShoot && <AimController ball={me.ball} onShoot={onShoot} labels={labels} />}
       <OrbitControls
         makeDefault
         enablePan={false}
@@ -67,8 +77,11 @@ export const GameScene = memo(function GameScene({ hole, players, meId, followId
         autoRotate={attract}
         autoRotateSpeed={0.7}
       />
+      <ResponsiveFov />
       <CameraRig hole={hole} follow={followed} attract={attract} />
     </Canvas>
+    <div ref={labels} className="scene-labels" />
+    </div>
   )
 })
 
@@ -267,7 +280,7 @@ function Trees({ hole }: { hole: Hole }) {
 
 // --------------------------------------------------------------- balls
 
-function Ball({ player, isMe, ready }: { player: PublicPlayer; isMe: boolean; ready: boolean }) {
+function Ball({ player, isMe, ready, labels }: { player: PublicPlayer; isMe: boolean; ready: boolean; labels: Labels }) {
   const group = useRef<THREE.Group>(null)
   const ring = useRef<THREE.Mesh>(null)
   useFrame(({ clock }) => {
@@ -290,7 +303,7 @@ function Ball({ player, isMe, ready }: { player: PublicPlayer; isMe: boolean; re
           <meshBasicMaterial color="#ffffff" transparent opacity={0.85} />
         </mesh>
       )}
-      <Html center position={[0, 0.42, 0]} zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+      <Html center position={[0, 0.42, 0]} zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }} portal={labels as RefObject<HTMLElement>}>
         <div className={`ball-tag${isMe ? ' me' : ''}`} style={{ borderColor: player.color }}>
           {player.name}
           {player.holed ? ' \u2713' : ''}
@@ -302,7 +315,15 @@ function Ball({ player, isMe, ready }: { player: PublicPlayer; isMe: boolean; re
 
 // ------------------------------------------------------------------- aim
 
-function AimController({ ball, onShoot }: { ball: Vec2; onShoot: (angle: number, power: number) => void }) {
+function AimController({
+  ball,
+  onShoot,
+  labels,
+}: {
+  ball: Vec2
+  onShoot: (angle: number, power: number) => void
+  labels: Labels
+}) {
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
   const controls = useThree((s) => s.controls) as unknown as Controls | null
@@ -386,7 +407,7 @@ function AimController({ ball, onShoot }: { ball: Vec2; onShoot: (angle: number,
         <coneGeometry args={[0.14, 0.28, 16]} />
         <meshBasicMaterial color={color} />
       </mesh>
-      <Html center position={[length + 0.5, 0.25, 0]} style={{ pointerEvents: 'none' }}>
+      <Html center position={[length + 0.5, 0.25, 0]} style={{ pointerEvents: 'none' }} portal={labels as RefObject<HTMLElement>}>
         <div className="power-tag">{Math.round(aim.power * 100)}%</div>
       </Html>
     </group>
@@ -395,8 +416,24 @@ function AimController({ ball, onShoot }: { ball: Vec2; onShoot: (angle: number,
 
 // ---------------------------------------------------------------- camera
 
+/** Portrait screens (phones) get a wider vertical field of view so the course still fits. */
+function ResponsiveFov() {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
+  const aspect = useThree((s) => s.size.width / Math.max(1, s.size.height))
+  useEffect(() => {
+    const minHorizontal = (40 * Math.PI) / 180
+    const portraitFov = (2 * Math.atan(Math.tan(minHorizontal / 2) / aspect) * 180) / Math.PI
+    camera.fov = aspect >= 1 ? 50 : Math.min(70, Math.max(50, portraitFov))
+    camera.updateProjectionMatrix()
+  }, [camera, aspect])
+  return null
+}
+
 function CameraRig({ hole, follow, attract }: { hole: Hole; follow: PublicPlayer | null; attract: boolean }) {
   const camera = useThree((s) => s.camera)
+  // On a portrait screen the camera also backs off a little.
+  const aspect = useThree((s) => s.size.width / Math.max(1, s.size.height))
+  const zoomOut = aspect < 1 ? Math.min(1.8, 1 / aspect ** 0.6) : 1
   const controls = useThree((s) => s.controls) as unknown as Controls | null
   const focus = useMemo(() => new THREE.Vector3(), [])
   const delta = useMemo(() => new THREE.Vector3(), [])
@@ -408,21 +445,24 @@ function CameraRig({ hole, follow, attract }: { hole: Hole; follow: PublicPlayer
       const cx = (tee.x + hole.cup.x) / 2
       const cz = (tee.z + hole.cup.z) / 2
       focus.set(cx, 0, cz)
-      camera.position.set(cx - dir.x * 9, 9, cz - dir.y * 9)
+      camera.position.set(cx - dir.x * 9 * zoomOut, 9 * zoomOut, cz - dir.y * 9 * zoomOut)
     } else {
-      focus.set(tee.x + dir.x * 1.5, 0, tee.z + dir.y * 1.5)
-      camera.position.set(tee.x - dir.x * 4.5, 4.2, tee.z - dir.y * 4.5)
+      focus.set(tee.x + dir.x * CAMERA_LEAD * zoomOut, 0, tee.z + dir.y * CAMERA_LEAD * zoomOut)
+      camera.position.set(tee.x - dir.x * 4.5 * zoomOut, 4.2 * zoomOut, tee.z - dir.y * 4.5 * zoomOut)
     }
     if (controls) {
       controls.target.copy(focus)
       controls.update()
     }
-  }, [hole, attract, camera, controls, focus])
+  }, [hole, attract, camera, controls, focus, zoomOut])
 
   useFrame((_, dt) => {
     if (!controls || !follow || attract) return
     const pose = ballPose(follow)
-    focus.set(pose.x, 0, pose.z)
+    // Look a little ahead, toward the cup: the ball sits low on screen and the way forward shows.
+    const ahead = Math.hypot(hole.cup.x - pose.x, hole.cup.z - pose.z)
+    const lead = ahead > 1e-3 ? Math.min(CAMERA_LEAD * zoomOut, ahead * 0.5) / ahead : 0
+    focus.set(pose.x + (hole.cup.x - pose.x) * lead, 0, pose.z + (hole.cup.z - pose.z) * lead)
     // Frame-rate independent easing: slow devices catch up as fast as fast ones.
     delta.copy(focus).sub(controls.target).multiplyScalar(1 - Math.exp(-Math.min(dt, 1) * 5))
     if (delta.lengthSq() < 1e-8) return

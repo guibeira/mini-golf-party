@@ -13,10 +13,11 @@ Turn-based 3D mini golf for up to 8 players, right in the browser, running as an
 Rules: 4 holes (par 11). Players take turns in seat order and the first shooter rotates
 every hole. You get 30 s per turn (running out costs one stroke) and at most 6 strokes
 per hole; not holing out scores 7. Sand slows the ball, arrows push it (boost pads and
-slopes), and water sends it back with +1 stroke. Disconnected players are skipped, and
+slopes), and water sends it back with +1 stroke. Disconnected players are skipped and lose their seat after 30 s (closing the tab counts
+right away; a page reload keeps the seat), and
 **Leave** (top left, with a confirmation) quits a game in progress; the turn and the host
-role pass on. Sound effects are synthesized with Web Audio and can be muted from the same
-corner.
+role pass on. Sound effects and the menu music (home screen and lobby) are synthesized with
+Web Audio and can be muted from the same corner.
 
 ## How it works
 
@@ -58,7 +59,7 @@ Every action is also an iii function:
 
 A bot shoots when `room.turnPlayerId` is its `playerId` and `room.turnShot` is false.
 It must make a call at least every 35 s (for example `rooms::get` with `playerId`),
-otherwise it is marked away and its turns are skipped.
+otherwise it is marked away and its turns are skipped, and 30 s later its seat is freed.
 
 ## Development
 

@@ -1,3 +1,4 @@
+import { networkInterfaces } from 'node:os'
 import { registerWorker } from 'iii-sdk'
 import { COURSE, COURSE_PAR } from '../shared/courses.js'
 import type { LeaderboardEntry } from '../shared/types.js'
@@ -167,7 +168,7 @@ fn<Input>(
 
 fn<Input>(
   'mini-golf::rooms::get',
-  'Reads a room. With since (a version), waits up to waitMs (at most 15000) for a newer version. Pass playerId to keep the player connected: after 35 s without calls the player is marked away and no longer holds up the hole.',
+  'Reads a room. With since (a version), waits up to waitMs (at most 15000) for a newer version. Pass playerId to keep the player connected: after 35 s without calls the player is marked away and skipped, and 30 s later their seat is freed.',
   {
     type: 'object',
     properties: { code: str, since: { type: 'number' }, playerId: str, waitMs: { type: 'number' } },
@@ -207,7 +208,16 @@ function json(status: number, body: unknown): HttpResult {
 }
 
 function bodyOf(req: HttpRequest): Input {
-  return req.body && typeof req.body === 'object' ? (req.body as Input) : {}
+  let body = req.body
+  // sendBeacon posts text/plain, which arrives as a string.
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body)
+    } catch {
+      body = null
+    }
+  }
+  return body && typeof body === 'object' ? (body as Input) : {}
 }
 
 function route(
@@ -244,6 +254,36 @@ route(
   (req) => readAsset(req.path_params?.file),
   true,
 )
+// Interfaces that never reach other people (containers, VMs, bridges).
+const SKIP_INTERFACE = /^(docker|br-|veth|virbr|lxc|cni|flannel|vmnet|vboxnet)/
+
+/** IPv4 addresses friends can use to reach this machine, LAN first, then VPN (e.g. Tailscale). */
+function shareAddresses(): string[] {
+  const found: { address: string; rank: number }[] = []
+  for (const [name, list] of Object.entries(networkInterfaces())) {
+    if (SKIP_INTERFACE.test(name)) continue
+    for (const info of list ?? []) {
+      if (String(info.family) !== 'IPv4' && String(info.family) !== '4') continue
+      if (info.internal) continue
+      const a = info.address
+      const rank = a.startsWith('192.168.')
+        ? 0
+        : a.startsWith('10.')
+          ? 1
+          : /^172\.(1[6-9]|2\d|3[01])\./.test(a)
+            ? 2
+            : /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(a)
+              ? 3
+              : 4
+      found.push({ address: a, rank })
+    }
+  }
+  return found.sort((x, y) => x.rank - y.rank).map((x) => x.address)
+}
+
+route('GET', '/golf/api/info', 'mini-golf::http::info', 'GET /golf/api/info: network addresses for invite links.', async () => ({
+  addresses: shareAddresses(),
+}))
 route('GET', '/golf/api/course', 'mini-golf::http::course', 'GET /golf/api/course: the course.', async () => COURSE)
 route('GET', '/golf/api/leaderboard', 'mini-golf::http::leaderboard', 'GET /golf/api/leaderboard: best rounds.', async () => ({
   entries: (await stateGet<LeaderboardEntry[]>('leaderboard')) ?? [],
@@ -262,6 +302,10 @@ route('POST', '/golf/api/rooms/:code/start', 'mini-golf::http::start', 'POST /go
 route('POST', '/golf/api/rooms/:code/leave', 'mini-golf::http::leave', 'POST /golf/api/rooms/:code/leave.', (req) => {
   const body = bodyOf(req)
   return store.leave(req.path_params?.code, body.playerId, body.token)
+})
+route('POST', '/golf/api/rooms/:code/away', 'mini-golf::http::away', 'POST /golf/api/rooms/:code/away: the page was closed.', (req) => {
+  const body = bodyOf(req)
+  return store.away(req.path_params?.code, body.playerId, body.token)
 })
 route('POST', '/golf/api/rooms/:code/shoot', 'mini-golf::http::shoot', 'POST /golf/api/rooms/:code/shoot.', (req) => {
   const body = bodyOf(req)
