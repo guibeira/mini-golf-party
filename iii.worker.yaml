@@ -1,0 +1,14 @@
+iii: v1
+name: mini-golf
+language: javascript
+deploy: bundle
+manifest: package.json
+license: Apache-2.0
+tags: [game, multiplayer, 3d, http]
+description: Mini Golf Party - salas multiplayer de mini golf 3D servidas pelo worker http, com a fisica das tacadas simulada no servidor.
+
+runtime:
+  kind: javascript
+
+scripts:
+  start: node ./dist/server/src/index.js
